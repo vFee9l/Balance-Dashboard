@@ -82,11 +82,13 @@ async function fetchGrafanaBalances(): Promise<ClientBalanceData[]> {
     ORDER BY metric
   `;
 
-  // Query B: 30-day average daily consumption.
-  // Uses BalanceHistory-Hour (same table as query A — proven to have sufficient history).
-  // Method: take the most-recent balance snapshot and the snapshot closest to 30 days ago,
-  // then divide the drop by 30. This sidesteps BalanceHistory-Daily which only stores
-  // a short rolling window and would return empty results for longer lookbacks.
+  // Query B: Adaptive long-term average daily consumption (up to 32 days).
+  // Finds the OLDEST available snapshot in the last 32 days and divides the balance
+  // drop by the actual elapsed days (DATEDIFF). This means:
+  //   - Clients with 30+ days of history  → avg over ~30 days
+  //   - Clients with only 5 days of history → avg over 5 days
+  //   - Clients with NO history at all → excluded (consumption = 0)
+  // This sidesteps the rigid fixed-window JOIN that excluded many valid clients.
   const consumptionSql = `
     WITH ${orgConfigCte},
     NowBal AS (
@@ -101,25 +103,30 @@ async function fetchGrafanaBalances(): Promise<ClientBalanceData[]> {
         AND o.Status = 1
         AND o.FinanceAccountId NOT IN (508, 820, 906, 507, 1003, 552, 553, '', 534)
     ),
-    Ago30Bal AS (
+    OldestBal AS (
       SELECT
         o.name AS metric,
         CASE WHEN oc.id IS NOT NULL THEN b.TotalOrganizationBalance ELSE b.TotalUserBalance END AS Bal,
-        ROW_NUMBER() OVER (PARTITION BY o.name ORDER BY b.CreatedDate DESC) AS rn
+        b.CreatedDate,
+        ROW_NUMBER() OVER (PARTITION BY o.name ORDER BY b.CreatedDate ASC) AS rn
       FROM [RiCH-Web-2].[dbo].[BalanceHistory-Hour] b
       JOIN [RiCH-Web].[dbo].[Organisation] o ON o.id = b.id
       LEFT JOIN OrgConfig oc ON oc.id = o.id
       WHERE b.CreatedDate >= DATEADD(day, -32, CAST(GETDATE() AS DATE))
-        AND b.CreatedDate <= DATEADD(day, -28, CAST(GETDATE() AS DATE))
+        AND b.CreatedDate <= DATEADD(day, -1, CAST(GETDATE() AS DATE))
         AND o.Status = 1
         AND o.FinanceAccountId NOT IN (508, 820, 906, 507, 1003, 552, 553, '', 534)
     )
     SELECT
       n.metric,
-      CASE WHEN (a.Bal - n.Bal) > 0 THEN (a.Bal - n.Bal) / 30.0 ELSE 0 END AS Avg_Daily_Consumption
+      CASE
+        WHEN (o.Bal - n.Bal) > 0 AND DATEDIFF(day, o.CreatedDate, GETDATE()) > 0
+        THEN (o.Bal - n.Bal) / CAST(DATEDIFF(day, o.CreatedDate, GETDATE()) AS FLOAT)
+        ELSE 0
+      END AS Avg_Daily_Consumption
     FROM NowBal n
-    JOIN Ago30Bal a ON a.metric = n.metric
-    WHERE n.rn = 1 AND a.rn = 1
+    JOIN OldestBal o ON o.metric = n.metric
+    WHERE n.rn = 1 AND o.rn = 1
   `;
 
   // Query D: Yesterday's actual consumption and the day before, per client.
@@ -161,9 +168,10 @@ async function fetchGrafanaBalances(): Promise<ClientBalanceData[]> {
     WHERE c1.CreatedDate = DATEADD(day, -1, CAST(GETDATE() AS DATE))
   `;
 
-  // Query C: 7-day average daily consumption.
-  // Same BalanceHistory-Hour approach as Query B but over a 7-day window.
-  // (balance 7 days ago − current balance) / 7 = average daily burn.
+  // Query C: Adaptive short-term average daily consumption (up to 9 days).
+  // Same adaptive approach as Query B but over a shorter window.
+  // Finds the oldest available snapshot in the last 9 days so that even clients
+  // with only 1-2 days of hourly history can produce a recent rate estimate.
   const recentConsumptionSql = `
     WITH ${orgConfigCte},
     NowBal AS (
@@ -178,25 +186,30 @@ async function fetchGrafanaBalances(): Promise<ClientBalanceData[]> {
         AND o.Status = 1
         AND o.FinanceAccountId NOT IN (508, 820, 906, 507, 1003, 552, 553, '', 534)
     ),
-    Ago7Bal AS (
+    OldestBal AS (
       SELECT
         o.name AS metric,
         CASE WHEN oc.id IS NOT NULL THEN b.TotalOrganizationBalance ELSE b.TotalUserBalance END AS Bal,
-        ROW_NUMBER() OVER (PARTITION BY o.name ORDER BY b.CreatedDate DESC) AS rn
+        b.CreatedDate,
+        ROW_NUMBER() OVER (PARTITION BY o.name ORDER BY b.CreatedDate ASC) AS rn
       FROM [RiCH-Web-2].[dbo].[BalanceHistory-Hour] b
       JOIN [RiCH-Web].[dbo].[Organisation] o ON o.id = b.id
       LEFT JOIN OrgConfig oc ON oc.id = o.id
       WHERE b.CreatedDate >= DATEADD(day, -9, CAST(GETDATE() AS DATE))
-        AND b.CreatedDate <= DATEADD(day, -5, CAST(GETDATE() AS DATE))
+        AND b.CreatedDate <= DATEADD(day, -1, CAST(GETDATE() AS DATE))
         AND o.Status = 1
         AND o.FinanceAccountId NOT IN (508, 820, 906, 507, 1003, 552, 553, '', 534)
     )
     SELECT
       n.metric,
-      CASE WHEN (a.Bal - n.Bal) > 0 THEN (a.Bal - n.Bal) / 7.0 ELSE 0 END AS Avg_Daily_Consumption_Recent
+      CASE
+        WHEN (o.Bal - n.Bal) > 0 AND DATEDIFF(day, o.CreatedDate, GETDATE()) > 0
+        THEN (o.Bal - n.Bal) / CAST(DATEDIFF(day, o.CreatedDate, GETDATE()) AS FLOAT)
+        ELSE 0
+      END AS Avg_Daily_Consumption_Recent
     FROM NowBal n
-    JOIN Ago7Bal a ON a.metric = n.metric
-    WHERE n.rn = 1 AND a.rn = 1
+    JOIN OldestBal o ON o.metric = n.metric
+    WHERE n.rn = 1 AND o.rn = 1
   `;
 
   const payload = {
@@ -317,10 +330,15 @@ function parseFramesToBalances(
   const result: ClientBalanceData[] = [];
   for (const [metric, remainingBalance] of balanceMap.entries()) {
     const dailyConsumption = consumptionMap.get(metric) ?? 0;
-    const recentDailyConsumption = recentConsumptionMap.get(metric) ?? 0;
     const yesterdayConsumption = yesterdayMap.get(metric) ?? 0;
     const dayBeforeRaw = dayBeforeMap.get(metric);
     const dayBeforeConsumption = dayBeforeRaw !== undefined ? dayBeforeRaw : null;
+
+    // Prefer the 9-day adaptive rate; if it's still 0 but we have yesterday's
+    // actual consumption, use that as a last-resort 1-day rate estimate.
+    const rawRecent = recentConsumptionMap.get(metric) ?? 0;
+    const recentDailyConsumption = rawRecent > 0 ? rawRecent : (dailyConsumption === 0 && yesterdayConsumption > 0 ? yesterdayConsumption : 0);
+
     result.push({ metric, remainingBalance, dailyConsumption, recentDailyConsumption, yesterdayConsumption, dayBeforeConsumption });
   }
 
