@@ -145,6 +145,8 @@ export interface ClientBalance {
   recentDailyConsumption: number;
   /** Estimated days remaining based on the last 7-day consumption rate (-1 if no data) */
   daysRemainingRecent: number;
+  /** True when daysRemaining is calculated from the 7-day rate because monthly data is unavailable */
+  usingFallbackRate?: boolean;
   /** Actual SMS consumption yesterday */
   yesterdayConsumption: number;
   /**

@@ -432,24 +432,36 @@ export default function Dashboard() {
                         <Tooltip>
                           <TooltipTrigger asChild>
                             <span className="inline-flex items-center gap-1 cursor-help">
-                              {balance.daysRemaining < 0
-                                ? <span className="text-muted-foreground font-normal text-sm">N/A</span>
-                                : balance.daysRemaining}
+                              {balance.daysRemaining < 0 ? (
+                                <span className="text-muted-foreground font-normal text-sm">N/A</span>
+                              ) : (
+                                <span className="inline-flex items-baseline gap-1">
+                                  {balance.daysRemaining}
+                                  {balance.usingFallbackRate && (
+                                    <span className="text-[10px] font-normal text-amber-400 leading-none">~</span>
+                                  )}
+                                </span>
+                              )}
                               <Info className="w-3 h-3 text-muted-foreground opacity-60" />
                             </span>
                           </TooltipTrigger>
                           <TooltipContent
                             side="left"
-                            className="max-w-[220px] p-0 bg-popover text-popover-foreground border border-border/60 shadow-lg"
+                            className="max-w-[240px] p-0 bg-popover text-popover-foreground border border-border/60 shadow-lg"
                           >
                             <div className="p-3 space-y-2.5">
                               <p className="text-xs font-semibold text-foreground border-b border-border/40 pb-1.5">
                                 Est. Days Breakdown
                               </p>
+                              {balance.usingFallbackRate && (
+                                <p className="text-[10px] text-amber-400 leading-snug">
+                                  ⚠ Estimated from 7-day rate — prev. month data unavailable
+                                </p>
+                              )}
                               <div className="flex justify-between gap-4 text-xs">
                                 <span className="text-muted-foreground">Prev. month rate</span>
                                 <span className="font-mono font-semibold">
-                                  {balance.daysRemaining < 0 ? "N/A" : `${balance.daysRemaining}d`}
+                                  {balance.dailyConsumption > 0 ? `${balance.daysRemaining < 0 ? "N/A" : balance.daysRemaining + "d"}` : "—"}
                                 </span>
                               </div>
                               <div className="flex justify-between gap-4 text-xs">
@@ -457,7 +469,7 @@ export default function Dashboard() {
                                 <span className={`font-mono font-semibold ${
                                   balance.daysRemainingRecent < 0
                                     ? "text-muted-foreground"
-                                    : balance.daysRemainingRecent < balance.daysRemaining
+                                    : balance.daysRemainingRecent < (balance.daysRemaining < 0 ? Infinity : balance.daysRemaining)
                                     ? "text-red-400"
                                     : "text-green-400"
                                 }`}>

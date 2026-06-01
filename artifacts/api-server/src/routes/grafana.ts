@@ -313,9 +313,13 @@ function parseFramesToBalances(
     result.push({ metric, remainingBalance, dailyConsumption, recentDailyConsumption, yesterdayConsumption, dayBeforeConsumption });
   }
 
+  // Sort by effective days remaining (monthly rate preferred, 7-day fallback).
+  // Clients with no consumption data at all sort to the bottom.
   return result.sort((a, b) => {
-    const daysA = a.dailyConsumption > 0 ? a.remainingBalance / a.dailyConsumption : Infinity;
-    const daysB = b.dailyConsumption > 0 ? b.remainingBalance / b.dailyConsumption : Infinity;
+    const effA = a.dailyConsumption > 0 ? a.dailyConsumption : a.recentDailyConsumption;
+    const effB = b.dailyConsumption > 0 ? b.dailyConsumption : b.recentDailyConsumption;
+    const daysA = effA > 0 ? a.remainingBalance / effA : Infinity;
+    const daysB = effB > 0 ? b.remainingBalance / effB : Infinity;
     return daysA - daysB;
   });
 }
@@ -497,6 +501,7 @@ router.get("/grafana/balances", async (req, res): Promise<void> => {
   const result = rawBalances.map((b) => {
     // Primary rate: full-previous-month avg. Fallback: 7-day recent avg.
     // This ensures Est. Days is always populated when at least one rate is available.
+    const usingFallbackRate = b.dailyConsumption <= 0 && b.recentDailyConsumption > 0;
     const effectiveDaily = b.dailyConsumption > 0 ? b.dailyConsumption : b.recentDailyConsumption;
     const rawDays =
       effectiveDaily > 0
@@ -531,6 +536,7 @@ router.get("/grafana/balances", async (req, res): Promise<void> => {
       daysRemaining,
       recentDailyConsumption: b.recentDailyConsumption,
       daysRemainingRecent,
+      usingFallbackRate,
       yesterdayConsumption: b.yesterdayConsumption,
       dailyChangePercent,
       severity,
