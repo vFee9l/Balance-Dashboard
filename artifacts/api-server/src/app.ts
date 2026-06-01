@@ -2,6 +2,8 @@ import express, { type Express } from "express";
 import cors from "cors";
 import pinoHttp from "pino-http";
 import session from "express-session";
+import { resolve, join } from "path";
+import { existsSync } from "fs";
 import router from "./routes";
 import { logger } from "./lib/logger";
 import { db, settingsTable } from "@workspace/db";
@@ -80,5 +82,23 @@ app.use("/api", async (req, res, next) => {
 });
 
 app.use("/api", router);
+
+// In production, serve the React SPA from the same Express process.
+// This eliminates the need for nginx when running on a single port.
+if (process.env.NODE_ENV === "production") {
+  const frontendDist =
+    process.env.FRONTEND_DIST ??
+    resolve(__dirname, "../../../artifacts/balance-alerts/dist/public");
+
+  if (existsSync(frontendDist)) {
+    logger.info({ frontendDist }, "Serving React frontend static files");
+    app.use(express.static(frontendDist));
+    app.get("*", (_req, res) => {
+      res.sendFile(join(frontendDist, "index.html"));
+    });
+  } else {
+    logger.warn({ frontendDist }, "Frontend dist not found — build the frontend first");
+  }
+}
 
 export default app;

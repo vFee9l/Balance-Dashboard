@@ -1,0 +1,8 @@
+uploads = []
+generated = []
+
+[[outputs]]
+id = "fUFKy-ZSVvdRNp0PApV6U"
+uri = "file://DEPLOY.md"
+type = "text"
+title = "Ubuntu Deployment Guide"
