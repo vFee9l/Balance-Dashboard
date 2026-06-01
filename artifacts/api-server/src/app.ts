@@ -92,7 +92,7 @@ const frontendDist =
 if (existsSync(frontendDist)) {
   logger.info({ frontendDist }, "Serving React frontend static files");
   app.use(express.static(frontendDist));
-  app.get("*", (_req, res) => {
+  app.get("/{*path}", (_req, res) => {
     res.sendFile(join(frontendDist, "index.html"));
   });
 } else {
