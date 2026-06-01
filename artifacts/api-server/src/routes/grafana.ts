@@ -816,17 +816,17 @@ export async function runAlertChecks(): Promise<{
   const thresholdManager = settings?.thresholdManager ?? 15;
   const thresholdMd = settings?.thresholdMd ?? 5;
 
-  // Fixed manager and MD emails
-  const managerEmails = ["a.aljarba@t2.sa", "b.alabsi@t2.sa"];
-  const mdEmails = ["n.ghnaim@t2.sa"];
-
-  // Fetch Google Sheet contacts (staff per client)
-  const sheetContacts: SheetContact[] = settings?.googleSheetUrl
-    ? await fetchSheetContacts(settings.googleSheetUrl)
-    : [];
-
-  // Also fall back to DB contacts for SMS
+  // Load all contacts from DB — single source of truth for email and SMS
   const dbContacts = await db.select().from(contactsTable);
+
+  const staffEmails  = dbContacts.filter(c => c.role === "staff"   && c.email).map(c => c.email);
+  const managerEmails = dbContacts.filter(c => c.role === "manager" && c.email).map(c => c.email);
+  const mdEmails      = dbContacts.filter(c => c.role === "md"      && c.email).map(c => c.email);
+
+  logger.info({ staffCount: staffEmails.length, managerCount: managerEmails.length, mdCount: mdEmails.length }, "Alert contacts loaded from DB");
+
+  // No Google Sheet contacts needed — staff emails come from DB above
+  const sheetContacts: SheetContact[] = [];
 
   const rawBalances = await fetchGrafanaBalances();
 
@@ -856,14 +856,6 @@ export async function runAlertChecks(): Promise<{
     let contactsNotified = 0;
 
     // ── Email logic ────────────────────────────────────────────────────────────
-    // Find the CCS + Account Manager emails for this client from the sheet
-    const clientSheet = sheetContacts.find(
-      (s) => s.clientName.toLowerCase() === b.metric.toLowerCase()
-    );
-    const staffEmails = clientSheet
-      ? [clientSheet.email, ...clientSheet.ccs].filter(Boolean)
-      : [];
-
     if (settings?.smtpEnabled) {
       let toEmails: string[] = [];
       let ccEmails: string[] = [];
@@ -883,6 +875,7 @@ export async function runAlertChecks(): Promise<{
       }
 
       if (toEmails.length > 0) {
+        logger.info({ metric: b.metric, severity, to: toEmails, cc: ccEmails }, "Sending alert email");
         const ok = await sendEmail({
           to: toEmails,
           cc: ccEmails,
