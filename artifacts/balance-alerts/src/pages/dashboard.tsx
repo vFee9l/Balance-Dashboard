@@ -365,9 +365,16 @@ export default function Dashboard() {
                       </span>
                     </TableCell>
                     <TableCell className="text-right font-mono">
-                      {balance.dailyConsumption > 0
-                        ? formatBalance(balance.dailyConsumption) + "/d"
-                        : <span className="text-muted-foreground text-sm">—</span>}
+                      {balance.dailyConsumption > 0 ? (
+                        formatBalance(balance.dailyConsumption) + "/d"
+                      ) : balance.recentDailyConsumption > 0 ? (
+                        <span title="Based on last 7-day rate (prev. month data unavailable)">
+                          ~{formatBalance(balance.recentDailyConsumption)}/d
+                          <span className="text-muted-foreground text-[10px] ml-0.5">(7d)</span>
+                        </span>
+                      ) : (
+                        <span className="text-muted-foreground text-sm">—</span>
+                      )}
                     </TableCell>
                     <TableCell className="text-right">
                       {balance.dailyChangePercent === null || balance.dailyChangePercent === undefined ? (
@@ -378,9 +385,9 @@ export default function Dashboard() {
                             <TooltipTrigger asChild>
                               <span className={`inline-flex items-center gap-0.5 text-xs font-bold font-mono px-1.5 py-0.5 rounded ${
                                 balance.dailyChangePercent > 5
-                                  ? "bg-red-500/15 text-red-400"
-                                  : balance.dailyChangePercent < -5
                                   ? "bg-green-500/15 text-green-400"
+                                  : balance.dailyChangePercent < -5
+                                  ? "bg-red-500/15 text-red-400"
                                   : "bg-muted/40 text-muted-foreground"
                               }`}>
                                 {balance.dailyChangePercent > 0 ? "↑" : balance.dailyChangePercent < 0 ? "↓" : "→"}
@@ -403,8 +410,8 @@ export default function Dashboard() {
                                   </span>
                                 </div>
                                 <div className={`flex justify-between gap-6 text-xs border-t border-border/40 pt-1.5 font-semibold ${
-                                  balance.dailyChangePercent > 5 ? "text-red-400"
-                                  : balance.dailyChangePercent < -5 ? "text-green-400"
+                                  balance.dailyChangePercent > 5 ? "text-green-400"
+                                  : balance.dailyChangePercent < -5 ? "text-red-400"
                                   : "text-muted-foreground"
                                 }`}>
                                   <span>Change</span>

@@ -95,6 +95,10 @@ async function fetchGrafanaBalances(): Promise<ClientBalanceData[]> {
   //
   // This means the daily average naturally includes any payroll spike that occurred during
   // that same period last month, giving a much more accurate estimate of days remaining.
+  // Query B: Average daily consumption over the full previous calendar month.
+  // Using the full previous month (1st to last day) avoids the edge case on the 1st of the
+  // month where "same day last month" collapses the window to a single day and LAG produces
+  // no pairs. EOMONTH gives the last day of last month reliably.
   const consumptionSql = `
     WITH ${orgConfigCte},
     DailyData AS (
@@ -108,14 +112,13 @@ async function fetchGrafanaBalances(): Promise<ClientBalanceData[]> {
       JOIN [RiCH-Web].[dbo].[Organisation] o ON o.id = b.id
       LEFT JOIN OrgConfig oc ON oc.id = o.id
       WHERE
-        -- From the 1st of last month …
+        -- Full previous calendar month: 1st to last day
         b.CreatedDate >= DATEFROMPARTS(
           YEAR(DATEADD(month, -1, CAST(GETDATE() AS DATE))),
           MONTH(DATEADD(month, -1, CAST(GETDATE() AS DATE))),
           1
         )
-        -- … up to the same day-of-month as today, but in last month
-        AND b.CreatedDate <= DATEADD(month, -1, CAST(GETDATE() AS DATE))
+        AND b.CreatedDate <= EOMONTH(DATEADD(month, -1, CAST(GETDATE() AS DATE)))
         AND o.Status = 1
         AND o.FinanceAccountId NOT IN (508, 820, 906, 507, 1003, 552, 553, '', 534)
     )
@@ -492,9 +495,12 @@ router.get("/grafana/balances", async (req, res): Promise<void> => {
   const yesterdayDate = new Date(Date.now() - 86400_000).toISOString().slice(0, 10);
 
   const result = rawBalances.map((b) => {
+    // Primary rate: full-previous-month avg. Fallback: 7-day recent avg.
+    // This ensures Est. Days is always populated when at least one rate is available.
+    const effectiveDaily = b.dailyConsumption > 0 ? b.dailyConsumption : b.recentDailyConsumption;
     const rawDays =
-      b.dailyConsumption > 0
-        ? b.remainingBalance / b.dailyConsumption
+      effectiveDaily > 0
+        ? b.remainingBalance / effectiveDaily
         : null;
     const daysRemaining =
       rawDays === null ? -1 : Math.max(0, Math.round(rawDays * 10) / 10);
