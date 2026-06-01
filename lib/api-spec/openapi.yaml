@@ -1,22 +1,74 @@
 openapi: 3.1.0
 info:
-  # Do not change the title, if the title changes, the import paths will be broken
   title: Api
   version: 0.1.0
-  description: API specification
+  description: Balance Alert System API
 servers:
   - url: /api
     description: Base API path
 tags:
   - name: health
-    description: Health operations
+  - name: contacts
+  - name: settings
+  - name: grafana
+  - name: alerts
 paths:
+  /auth/check:
+    get:
+      operationId: checkAuth
+      tags: [auth]
+      summary: Check authentication status
+      responses:
+        "200":
+          description: Auth status
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuthStatus"
+
+  /auth/login:
+    post:
+      operationId: loginAuth
+      tags: [auth]
+      summary: Login with TOTP code
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AuthLoginInput"
+      responses:
+        "200":
+          description: Login successful
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuthResult"
+        "401":
+          description: Invalid code
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /auth/logout:
+    post:
+      operationId: logoutAuth
+      tags: [auth]
+      summary: Log out and clear session
+      responses:
+        "200":
+          description: Logged out
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuthResult"
+
   /healthz:
     get:
       operationId: healthCheck
       tags: [health]
       summary: Health check
-      description: Returns server health status
       responses:
         "200":
           description: Healthy
@@ -24,13 +76,617 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/HealthStatus"
+
+  /contacts:
+    get:
+      operationId: listContacts
+      tags: [contacts]
+      summary: List all contacts
+      responses:
+        "200":
+          description: List of contacts
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Contact"
+    post:
+      operationId: createContact
+      tags: [contacts]
+      summary: Create a new contact
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ContactInput"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Contact"
+        "400":
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /contacts/{id}:
+    get:
+      operationId: getContact
+      tags: [contacts]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Contact
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Contact"
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+    patch:
+      operationId: updateContact
+      tags: [contacts]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ContactUpdate"
+      responses:
+        "200":
+          description: Updated contact
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Contact"
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+    delete:
+      operationId: deleteContact
+      tags: [contacts]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "204":
+          description: Deleted
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /settings:
+    get:
+      operationId: getSettings
+      tags: [settings]
+      summary: Get notification channel settings
+      responses:
+        "200":
+          description: Settings
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Settings"
+    patch:
+      operationId: updateSettings
+      tags: [settings]
+      summary: Update notification channel settings
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SettingsUpdate"
+      responses:
+        "200":
+          description: Updated settings
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Settings"
+
+  /settings/verify-otp:
+    post:
+      operationId: verifyOtp
+      tags: [settings]
+      summary: Verify TOTP code to access settings
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/OtpInput"
+      responses:
+        "200":
+          description: OTP verified
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OtpResult"
+        "401":
+          description: Invalid OTP
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /settings/totp-setup:
+    get:
+      operationId: getTotpSetup
+      tags: [settings]
+      summary: Get TOTP QR code and secret for Google Authenticator setup
+      responses:
+        "200":
+          description: TOTP setup info
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TotpSetup"
+
+  /grafana/consumption-history:
+    get:
+      operationId: getConsumptionHistory
+      tags: [grafana]
+      summary: Get per-day consumption history for a client (current month vs previous month same period)
+      parameters:
+        - name: metric
+          in: query
+          required: true
+          schema:
+            type: string
+          description: Client/org name
+      responses:
+        "200":
+          description: Daily consumption history
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ConsumptionHistory"
+        "400":
+          description: Missing metric
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /grafana/balances:
+    get:
+      operationId: getGrafanaBalances
+      tags: [grafana]
+      summary: Fetch current balance data from Grafana
+      responses:
+        "200":
+          description: Balance data from Grafana
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/ClientBalance"
+        "502":
+          description: Grafana unreachable
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /alerts/trigger:
+    post:
+      operationId: triggerAlerts
+      tags: [alerts]
+      summary: Manually trigger alert checks and send notifications
+      responses:
+        "200":
+          description: Alert trigger result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AlertTriggerResult"
+
+  /alerts/history:
+    get:
+      operationId: listAlertHistory
+      tags: [alerts]
+      summary: Get alert send history
+      responses:
+        "200":
+          description: Alert history
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/AlertHistoryEntry"
+
+  /alerts/summary:
+    get:
+      operationId: getAlertSummary
+      tags: [alerts]
+      summary: Get summary counts of alerts by severity
+      responses:
+        "200":
+          description: Alert summary
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AlertSummary"
+
 components:
   schemas:
+    AuthStatus:
+      type: object
+      required: [authenticated, requiresAuth]
+      properties:
+        authenticated:
+          type: boolean
+        requiresAuth:
+          type: boolean
+
+    AuthLoginInput:
+      type: object
+      required: [otp]
+      properties:
+        otp:
+          type: string
+
+    AuthResult:
+      type: object
+      required: [success]
+      properties:
+        success:
+          type: boolean
+
     HealthStatus:
       type: object
+      required: [status]
       properties:
         status:
           type: string
-      required:
-        - status
 
+    ErrorResponse:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: string
+
+    Contact:
+      type: object
+      required: [id, fullName, phoneNumber, email, position, role, createdAt]
+      properties:
+        id:
+          type: integer
+        fullName:
+          type: string
+        phoneNumber:
+          type: string
+        email:
+          type: string
+        position:
+          type: string
+        role:
+          type: string
+        createdAt:
+          type: string
+
+    ContactInput:
+      type: object
+      required: [fullName, phoneNumber, email, position, role]
+      properties:
+        fullName:
+          type: string
+          minLength: 1
+        phoneNumber:
+          type: string
+          minLength: 1
+        email:
+          type: string
+        position:
+          type: string
+        role:
+          type: string
+
+    ContactUpdate:
+      type: object
+      properties:
+        fullName:
+          type: string
+        phoneNumber:
+          type: string
+        email:
+          type: string
+        position:
+          type: string
+        role:
+          type: string
+
+    Settings:
+      type: object
+      required: [id, smsEnabled, smtpEnabled, telegramEnabled, grafanaUrl, scheduleEnabled, scheduleHour, thresholdStaff, thresholdManager, thresholdMd, totpEnabled]
+      properties:
+        id:
+          type: integer
+        smsEnabled:
+          type: boolean
+        smsApiUrl:
+          type: ["string", "null"]
+        smsBodyTemplate:
+          type: ["string", "null"]
+        smtpEnabled:
+          type: boolean
+        smtpHost:
+          type: ["string", "null"]
+        smtpPort:
+          type: ["integer", "null"]
+        smtpUser:
+          type: ["string", "null"]
+        smtpFrom:
+          type: ["string", "null"]
+        telegramEnabled:
+          type: boolean
+        telegramBotToken:
+          type: ["string", "null"]
+        telegramChatId:
+          type: ["string", "null"]
+        grafanaUrl:
+          type: string
+        grafanaApiKey:
+          type: ["string", "null"]
+        grafanaDashboardUid:
+          type: ["string", "null"]
+        scheduleEnabled:
+          type: boolean
+        scheduleHour:
+          type: integer
+        scheduleCron:
+          type: ["string", "null"]
+        thresholdStaff:
+          type: integer
+        thresholdManager:
+          type: integer
+        thresholdMd:
+          type: integer
+        totpEnabled:
+          type: boolean
+        totpSecret:
+          type: ["string", "null"]
+        googleSheetUrl:
+          type: ["string", "null"]
+
+    SettingsUpdate:
+      type: object
+      properties:
+        smsEnabled:
+          type: boolean
+        smsApiUrl:
+          type: string
+        smsBodyTemplate:
+          type: string
+        smtpEnabled:
+          type: boolean
+        smtpHost:
+          type: string
+        smtpPort:
+          type: integer
+        smtpUser:
+          type: string
+        smtpPassword:
+          type: string
+        smtpFrom:
+          type: string
+        telegramEnabled:
+          type: boolean
+        telegramBotToken:
+          type: string
+        telegramChatId:
+          type: string
+        grafanaUrl:
+          type: string
+        grafanaApiKey:
+          type: string
+        grafanaDashboardUid:
+          type: string
+        scheduleEnabled:
+          type: boolean
+        scheduleHour:
+          type: integer
+        scheduleCron:
+          type: string
+        thresholdStaff:
+          type: integer
+        thresholdManager:
+          type: integer
+        thresholdMd:
+          type: integer
+        totpEnabled:
+          type: boolean
+        totpSecret:
+          type: string
+        googleSheetUrl:
+          type: string
+
+    OtpInput:
+      type: object
+      required: [otp]
+      properties:
+        otp:
+          type: string
+
+    OtpResult:
+      type: object
+      required: [success, token]
+      properties:
+        success:
+          type: boolean
+        token:
+          type: string
+
+    TotpSetup:
+      type: object
+      required: [secret, qrCodeUrl, otpAuthUrl]
+      properties:
+        secret:
+          type: string
+        qrCodeUrl:
+          type: string
+        otpAuthUrl:
+          type: string
+
+    ClientBalance:
+      type: object
+      required: [metric, remainingBalance, dailyConsumption, daysRemaining, severity, recentDailyConsumption, daysRemainingRecent, yesterdayConsumption]
+      properties:
+        metric:
+          type: string
+        remainingBalance:
+          type: number
+        dailyConsumption:
+          type: number
+        daysRemaining:
+          type: number
+        recentDailyConsumption:
+          type: number
+          description: Average daily consumption over the last 7 days
+        daysRemainingRecent:
+          type: number
+          description: Estimated days remaining based on the last 7-day consumption rate (-1 if no data)
+        yesterdayConsumption:
+          type: number
+          description: Actual SMS consumption yesterday
+        dailyChangePercent:
+          type: ["number", "null"]
+          description: "Percentage change in consumption: yesterday vs day before (null if insufficient data)"
+        severity:
+          type: string
+        lastUpdated:
+          type: ["string", "null"]
+
+    ConsumptionDataPoint:
+      type: object
+      required: [day, date, consumption]
+      properties:
+        day:
+          type: integer
+        date:
+          type: string
+        consumption:
+          type: number
+
+    ConsumptionHistory:
+      type: object
+      required: [metric, currentMonth, previousMonth, currentMonthLabel, previousMonthLabel]
+      properties:
+        metric:
+          type: string
+        currentMonth:
+          type: array
+          items:
+            $ref: "#/components/schemas/ConsumptionDataPoint"
+        previousMonth:
+          type: array
+          items:
+            $ref: "#/components/schemas/ConsumptionDataPoint"
+        currentMonthLabel:
+          type: string
+        previousMonthLabel:
+          type: string
+
+    AlertTriggerResult:
+      type: object
+      required: [success, notificationsSent, errors, clientsChecked]
+      properties:
+        success:
+          type: boolean
+        notificationsSent:
+          type: integer
+        errors:
+          type: array
+          items:
+            type: string
+        clientsChecked:
+          type: integer
+        details:
+          type: array
+          items:
+            $ref: "#/components/schemas/AlertDetail"
+
+    AlertDetail:
+      type: object
+      required: [metric, daysRemaining, severity, contactsNotified]
+      properties:
+        metric:
+          type: string
+        daysRemaining:
+          type: number
+        severity:
+          type: string
+        contactsNotified:
+          type: integer
+
+    AlertHistoryEntry:
+      type: object
+      required: [id, metric, daysRemaining, severity, channel, recipientCount, sentAt, success]
+      properties:
+        id:
+          type: integer
+        metric:
+          type: string
+        daysRemaining:
+          type: number
+        severity:
+          type: string
+        channel:
+          type: string
+        recipientCount:
+          type: integer
+        sentAt:
+          type: string
+        success:
+          type: boolean
+        errorMessage:
+          type: ["string", "null"]
+
+    AlertSummary:
+      type: object
+      required: [totalAlertsSent, clientsInWarning, clientsInCritical, clientsInEmergency, lastRunAt]
+      properties:
+        totalAlertsSent:
+          type: integer
+        clientsInWarning:
+          type: integer
+        clientsInCritical:
+          type: integer
+        clientsInEmergency:
+          type: integer
+        lastRunAt:
+          type: ["string", "null"]

@@ -1,8 +1,18 @@
 import express, { type Express } from "express";
 import cors from "cors";
 import pinoHttp from "pino-http";
+import session from "express-session";
 import router from "./routes";
 import { logger } from "./lib/logger";
+import { db, settingsTable } from "@workspace/db";
+
+declare module "express-session" {
+  interface SessionData {
+    authenticated: boolean;
+  }
+}
+
+const sessionSecret = process.env["SESSION_SECRET"] ?? "balance-alert-secret-change-me";
 
 const app: Express = express();
 
@@ -25,9 +35,49 @@ app.use(
     },
   }),
 );
-app.use(cors());
+app.use(cors({ origin: true, credentials: true }));
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
+
+app.use(
+  session({
+    secret: sessionSecret,
+    resave: false,
+    saveUninitialized: false,
+    cookie: {
+      httpOnly: true,
+      secure: false,
+      maxAge: 8 * 60 * 60 * 1000, // 8 hours
+    },
+  })
+);
+
+// Auth guard middleware: enforce TOTP login when it's enabled
+app.use("/api", async (req, res, next) => {
+  // Always allow: health check, auth routes
+  if (req.path === "/healthz" || req.path.startsWith("/auth/")) {
+    return next();
+  }
+
+  // If already authenticated via session, allow through
+  if (req.session.authenticated) {
+    return next();
+  }
+
+  // Check if auth is required
+  try {
+    const rows = await db.select({ totpEnabled: settingsTable.totpEnabled }).from(settingsTable).limit(1);
+    const totpEnabled = rows[0]?.totpEnabled ?? false;
+    if (!totpEnabled) {
+      return next();
+    }
+  } catch {
+    // If DB check fails, allow through (don't block on DB error)
+    return next();
+  }
+
+  res.status(401).json({ error: "Authentication required" });
+});
 
 app.use("/api", router);
 

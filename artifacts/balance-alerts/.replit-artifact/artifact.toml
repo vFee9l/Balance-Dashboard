@@ -1,0 +1,32 @@
+kind = "web"
+  previewPath = "/"
+  title = "Balance Alert System"
+  version = "1.0.0"
+  id = "artifacts/balance-alerts"
+  router = "path"
+
+  [[integratedSkills]]
+  name = "react-vite"
+  version = "1.0.0"
+
+  [[services]]
+  name = "web"
+  paths = [ "/" ]
+  localPort = 24672
+
+  [services.development]
+  run = "pnpm --filter @workspace/balance-alerts run dev"
+
+  [services.production]
+  build = [ "pnpm", "--filter", "@workspace/balance-alerts", "run", "build" ]
+  publicDir = "artifacts/balance-alerts/dist/public"
+  serve = "static"
+
+  [[services.production.rewrites]]
+  from = "/*"
+  to = "/index.html"
+
+  [services.env]
+  PORT = "24672"
+  BASE_PATH = "/"
+  
