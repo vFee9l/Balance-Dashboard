@@ -56,8 +56,8 @@ app.use(
 
 // Auth guard middleware: enforce TOTP login when it's enabled
 app.use("/api", async (req, res, next) => {
-  // Always allow: health check, auth routes
-  if (req.path === "/healthz" || req.path.startsWith("/auth/")) {
+  // Always allow: health check, alert-failures probe, auth routes
+  if (req.path === "/healthz" || req.path === "/health/alert-failures" || req.path.startsWith("/auth/")) {
     return next();
   }
 
