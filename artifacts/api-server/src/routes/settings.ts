@@ -3,6 +3,7 @@ import { db, settingsTable } from "@workspace/db";
 import { eq } from "drizzle-orm";
 import { UpdateSettingsBody, VerifyOtpBody } from "@workspace/api-zod";
 import { logger } from "../lib/logger";
+import nodemailer from "nodemailer";
 import { generateSecret, generateURI, verify, generate } from "otplib";
 import QRCode from "qrcode";
 
@@ -98,6 +99,45 @@ router.post("/settings/verify-otp", async (req, res): Promise<void> => {
 
   logger.info("Settings TOTP verified successfully");
   res.json({ success: true, token: Buffer.from(`settings-${Date.now()}`).toString("base64") });
+});
+
+router.post("/settings/test-email", async (req, res): Promise<void> => {
+  const { to } = req.body as { to?: string };
+  if (!to || !to.includes("@")) {
+    res.status(400).json({ success: false, error: "A valid recipient email address is required." });
+    return;
+  }
+
+  const settings = await getOrCreateSettings();
+  const { smtpHost, smtpPort, smtpTls, smtpUser, smtpPassword, smtpFrom } = settings;
+
+  if (!smtpHost || !smtpUser || !smtpFrom) {
+    res.status(400).json({ success: false, error: "SMTP is not fully configured (host, username and from address are required)." });
+    return;
+  }
+
+  try {
+    const port = smtpPort ?? 587;
+    const secure = smtpTls ?? (port === 465);
+    const transporter = nodemailer.createTransport({
+      host: smtpHost,
+      port,
+      secure,
+      auth: { user: smtpUser, pass: smtpPassword ?? "" },
+    });
+    await transporter.sendMail({
+      from: smtpFrom,
+      to,
+      subject: "BalanceAlert — SMTP Test",
+      text: `This is a test email from the BalanceAlert system.\n\nIf you received this, your SMTP configuration is working correctly.\n\nSMTP host: ${smtpHost}:${port} (TLS: ${secure})`,
+    });
+    logger.info({ to }, "Test email sent successfully");
+    res.json({ success: true });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    logger.warn({ err, to }, "Test email failed");
+    res.status(500).json({ success: false, error: msg });
+  }
 });
 
 export default router;

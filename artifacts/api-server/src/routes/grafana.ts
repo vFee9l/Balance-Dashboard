@@ -756,18 +756,22 @@ async function sendEmail(opts: {
   settings: {
     smtpHost?: string | null;
     smtpPort?: number | null;
+    smtpTls?: boolean | null;
     smtpUser?: string | null;
     smtpPassword?: string | null;
     smtpFrom?: string | null;
   };
 }): Promise<boolean> {
-  const { smtpHost, smtpPort, smtpUser, smtpPassword, smtpFrom } = opts.settings;
+  const { smtpHost, smtpPort, smtpTls, smtpUser, smtpPassword, smtpFrom } = opts.settings;
   if (!smtpHost || !smtpUser || !smtpFrom) return false;
   try {
+    const port = smtpPort ?? 587;
+    // Use the explicit TLS checkbox; fall back to inferring from port 465.
+    const secure = smtpTls ?? (port === 465);
     const transporter = nodemailer.createTransport({
       host: smtpHost,
-      port: smtpPort ?? 587,
-      secure: (smtpPort ?? 587) === 465,
+      port,
+      secure,
       auth: smtpUser ? { user: smtpUser, pass: smtpPassword ?? "" } : undefined,
     });
     await transporter.sendMail({

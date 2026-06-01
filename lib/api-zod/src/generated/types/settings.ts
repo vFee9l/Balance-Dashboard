@@ -18,6 +18,7 @@ export interface Settings {
   smtpHost?: string | null;
   /** @nullable */
   smtpPort?: number | null;
+  smtpTls: boolean;
   /** @nullable */
   smtpUser?: string | null;
   /** @nullable */

@@ -10,6 +10,7 @@ export const settingsTable = pgTable("settings", {
   smtpEnabled: boolean("smtp_enabled").notNull().default(false),
   smtpHost: text("smtp_host"),
   smtpPort: integer("smtp_port"),
+  smtpTls: boolean("smtp_tls").notNull().default(false),
   smtpUser: text("smtp_user"),
   smtpPassword: text("smtp_password"),
   smtpFrom: text("smtp_from"),

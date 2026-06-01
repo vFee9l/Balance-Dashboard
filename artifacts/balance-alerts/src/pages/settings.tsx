@@ -100,10 +100,39 @@ export default function SettingsPage() {
   const updateSettingsMutation = useUpdateSettings();
   const verifyOtpMutation = useVerifyOtp();
 
+  const [testEmailTo, setTestEmailTo] = useState("");
+  const [testEmailSending, setTestEmailSending] = useState(false);
+
+  const handleTestEmail = async () => {
+    if (!testEmailTo.includes("@")) {
+      toast({ variant: "destructive", title: "Invalid address", description: "Enter a valid recipient email." });
+      return;
+    }
+    setTestEmailSending(true);
+    try {
+      const res = await fetch("/api/settings/test-email", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ to: testEmailTo }),
+      });
+      const data = await res.json() as { success: boolean; error?: string };
+      if (data.success) {
+        toast({ title: "Test email sent", description: `Delivered to ${testEmailTo}` });
+      } else {
+        toast({ variant: "destructive", title: "Send failed", description: data.error ?? "Unknown SMTP error." });
+      }
+    } catch (err: unknown) {
+      toast({ variant: "destructive", title: "Network error", description: err instanceof Error ? err.message : "Request failed." });
+    } finally {
+      setTestEmailSending(false);
+    }
+  };
+
   const form = useForm<SettingsUpdate>({
     defaultValues: {
       smsEnabled: false,
       smtpEnabled: false,
+      smtpTls: false,
       telegramEnabled: false,
       scheduleEnabled: true,
       scheduleHour: 8,
@@ -428,6 +457,17 @@ export default function SettingsPage() {
                   </FormItem>
                 )} />
               </div>
+              <FormField control={form.control} name="smtpTls" render={({ field }) => (
+                <FormItem className="flex items-center gap-3 rounded-md border border-border/50 bg-background/40 px-4 py-3">
+                  <FormControl>
+                    <Switch checked={!!field.value} onCheckedChange={field.onChange} />
+                  </FormControl>
+                  <div className="space-y-0.5">
+                    <FormLabel className="cursor-pointer">Enable TLS / SSL</FormLabel>
+                    <FormDescription className="text-xs">Turn on for port 465 (SMTPS). Leave off for port 587 STARTTLS or plain SMTP.</FormDescription>
+                  </div>
+                </FormItem>
+              )} />
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 <FormField control={form.control} name="smtpUser" render={({ field }) => (
                   <FormItem>
@@ -447,6 +487,31 @@ export default function SettingsPage() {
                     <FormControl><Input className="bg-background font-mono text-sm" {...field} value={field.value || ""} placeholder="alerts@example.com" /></FormControl>
                   </FormItem>
                 )} />
+              </div>
+              <Separator className="my-2 border-border/40" />
+              <div className="space-y-2">
+                <p className="text-sm font-medium text-foreground">Send Test Email</p>
+                <p className="text-xs text-muted-foreground">Sends a test message using the current saved SMTP settings to verify your configuration.</p>
+                <div className="flex gap-2">
+                  <Input
+                    type="email"
+                    placeholder="recipient@example.com"
+                    value={testEmailTo}
+                    onChange={e => setTestEmailTo(e.target.value)}
+                    className="bg-background font-mono text-sm flex-1"
+                    onKeyDown={e => e.key === "Enter" && handleTestEmail()}
+                  />
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={handleTestEmail}
+                    disabled={testEmailSending}
+                    className="shrink-0"
+                  >
+                    <Send className="w-4 h-4 mr-2" />
+                    {testEmailSending ? "Sending…" : "Send Test"}
+                  </Button>
+                </div>
               </div>
             </CardContent>
           </Card>

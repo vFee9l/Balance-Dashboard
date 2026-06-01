@@ -13,6 +13,7 @@ export interface SettingsUpdate {
   smtpEnabled?: boolean;
   smtpHost?: string;
   smtpPort?: number;
+  smtpTls?: boolean;
   smtpUser?: string;
   smtpPassword?: string;
   smtpFrom?: string;
