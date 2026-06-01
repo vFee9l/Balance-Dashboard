@@ -83,22 +83,20 @@ app.use("/api", async (req, res, next) => {
 
 app.use("/api", router);
 
-// In production, serve the React SPA from the same Express process.
+// Serve the React SPA from the same Express process when the frontend dist is present.
 // This eliminates the need for nginx when running on a single port.
-if (process.env.NODE_ENV === "production") {
-  const frontendDist =
-    process.env.FRONTEND_DIST ??
-    resolve(__dirname, "../../../artifacts/balance-alerts/dist/public");
+const frontendDist =
+  process.env.FRONTEND_DIST ??
+  resolve(__dirname, "../../../artifacts/balance-alerts/dist/public");
 
-  if (existsSync(frontendDist)) {
-    logger.info({ frontendDist }, "Serving React frontend static files");
-    app.use(express.static(frontendDist));
-    app.get("*", (_req, res) => {
-      res.sendFile(join(frontendDist, "index.html"));
-    });
-  } else {
-    logger.warn({ frontendDist }, "Frontend dist not found — build the frontend first");
-  }
+if (existsSync(frontendDist)) {
+  logger.info({ frontendDist }, "Serving React frontend static files");
+  app.use(express.static(frontendDist));
+  app.get("*", (_req, res) => {
+    res.sendFile(join(frontendDist, "index.html"));
+  });
+} else {
+  logger.warn({ frontendDist }, "Frontend dist not found — build the frontend first");
 }
 
 export default app;
