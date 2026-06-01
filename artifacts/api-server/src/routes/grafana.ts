@@ -831,8 +831,11 @@ export async function runAlertChecks(): Promise<{
   const rawBalances = await fetchGrafanaBalances();
 
   for (const b of rawBalances) {
-    const rawDays =
-      b.dailyConsumption > 0 ? b.remainingBalance / b.dailyConsumption : null;
+    // Mirror the dashboard's logic exactly: prefer monthly avg, fall back to 7-day recent rate.
+    // Without this fallback a client with 0 monthly avg but non-zero recent consumption
+    // would be incorrectly treated as "ok" and receive no alert.
+    const effectiveDaily = b.dailyConsumption > 0 ? b.dailyConsumption : b.recentDailyConsumption;
+    const rawDays = effectiveDaily > 0 ? b.remainingBalance / effectiveDaily : null;
     const daysRemaining = rawDays === null ? -1 : Math.max(0, rawDays);
     const severity =
       rawDays === null
@@ -845,7 +848,7 @@ export async function runAlertChecks(): Promise<{
     }
 
     const balanceMil = (b.remainingBalance / 1_000_000).toFixed(2);
-    const consumptionMil = (b.dailyConsumption / 1_000_000).toFixed(2);
+    const consumptionMil = (effectiveDaily / 1_000_000).toFixed(2);
     const alertText =
       `[Balance Alert] ${severity.toUpperCase()} — Client: ${b.metric}\n` +
       `Remaining Balance: ${balanceMil}M\n` +
