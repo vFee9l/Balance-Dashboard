@@ -861,17 +861,17 @@ export async function runAlertChecks(): Promise<{
       let ccEmails: string[] = [];
 
       if (severity === "warning") {
-        // Warning: To = staff (CCS + AM/Director)
+        // Warning → To: staff only, CC: managers
         toEmails = staffEmails;
-        ccEmails = [];
+        ccEmails = managerEmails;
       } else if (severity === "critical") {
-        // Critical: To = managers, CC = staff
-        toEmails = managerEmails;
-        ccEmails = staffEmails;
+        // Critical → To: staff + managers (no CC)
+        toEmails = [...staffEmails, ...managerEmails];
+        ccEmails = [];
       } else if (severity === "emergency") {
-        // Emergency: To = MD, CC = managers + staff
-        toEmails = mdEmails;
-        ccEmails = [...managerEmails, ...staffEmails];
+        // Emergency → To: everyone (MD + managers + staff)
+        toEmails = [...mdEmails, ...managerEmails, ...staffEmails];
+        ccEmails = [];
       }
 
       if (toEmails.length > 0) {
@@ -903,11 +903,16 @@ export async function runAlertChecks(): Promise<{
 
     // ── SMS logic (DB contacts, role-based) ───────────────────────────────────
     if (settings?.smsEnabled) {
-      let eligibleContacts = dbContacts;
-      if (severity === "critical") {
-        eligibleContacts = dbContacts.filter((c) => c.role === "manager" || c.role === "md");
+      let eligibleContacts: typeof dbContacts = [];
+      if (severity === "warning") {
+        // Warning → staff only
+        eligibleContacts = dbContacts.filter((c) => c.role === "staff");
+      } else if (severity === "critical") {
+        // Critical → staff + managers
+        eligibleContacts = dbContacts.filter((c) => c.role === "staff" || c.role === "manager");
       } else if (severity === "emergency") {
-        eligibleContacts = dbContacts.filter((c) => c.role === "md");
+        // Emergency → everyone (staff + managers + MD)
+        eligibleContacts = dbContacts;
       }
 
       if (eligibleContacts.length > 0) {
