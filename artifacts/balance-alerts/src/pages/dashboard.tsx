@@ -6,6 +6,20 @@ import {
   getGetAlertSummaryQueryKey,
   useTriggerAlerts,
 } from "@workspace/api-client-react";
+
+type ClientBalance = {
+  metric: string;
+  remainingBalance: number;
+  dailyConsumption: number;
+  recentDailyConsumption: number;
+  daysRemaining: number;
+  daysRemainingRecent: number;
+  usingFallbackRate?: boolean;
+  yesterdayConsumption: number;
+  dailyChangePercent?: number | null;
+  severity: string;
+  lastUpdated?: string | null;
+};
 import { useQueryClient } from "@tanstack/react-query";
 import { useToast } from "@/hooks/use-toast";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -21,7 +35,7 @@ import {
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
-import { AlertCircle, CheckCircle2, ShieldAlert, Activity, RefreshCw, Search, Filter, BarChart2, Info } from "lucide-react";
+import { AlertCircle, CheckCircle2, ShieldAlert, Activity, RefreshCw, Search, Filter, BarChart2, Info, ArrowUp, ArrowDown, ArrowUpDown } from "lucide-react";
 import { format } from "date-fns";
 import ConsumptionHistoryDialog from "@/components/ConsumptionHistoryDialog";
 import {
@@ -39,6 +53,42 @@ const REFRESH_OPTIONS = [
   { label: "10 min", value: "600000" },
 ];
 
+function SortableHead({
+  col,
+  label,
+  sortCol,
+  sortDir,
+  onSort,
+  align = "left",
+  title,
+}: {
+  col: string;
+  label: string;
+  sortCol: string;
+  sortDir: "asc" | "desc";
+  onSort: (col: string) => void;
+  align?: "left" | "right";
+  title?: string;
+}) {
+  const active = sortCol === col;
+  return (
+    <TableHead
+      className={`font-mono text-xs font-semibold tracking-wider uppercase select-none cursor-pointer whitespace-nowrap ${align === "right" ? "text-right" : ""}`}
+      title={title}
+      onClick={() => onSort(col)}
+    >
+      <span className={`inline-flex items-center gap-1 transition-colors ${active ? "text-foreground" : "text-muted-foreground hover:text-foreground/70"} ${align === "right" ? "flex-row-reverse" : ""}`}>
+        {label}
+        {active ? (
+          sortDir === "asc" ? <ArrowUp className="w-3 h-3 shrink-0" /> : <ArrowDown className="w-3 h-3 shrink-0" />
+        ) : (
+          <ArrowUpDown className="w-3 h-3 shrink-0 opacity-40" />
+        )}
+      </span>
+    </TableHead>
+  );
+}
+
 export default function Dashboard() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
@@ -47,6 +97,17 @@ export default function Dashboard() {
   const [orgFilter, setOrgFilter] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
   const [selectedClient, setSelectedClient] = useState<{ metric: string; severity: string } | null>(null);
+  const [sortCol, setSortCol] = useState<string>("daysRemaining");
+  const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
+
+  const handleSort = (col: string) => {
+    if (sortCol === col) {
+      setSortDir((d) => (d === "asc" ? "desc" : "asc"));
+    } else {
+      setSortCol(col);
+      setSortDir("asc");
+    }
+  };
 
   const refetchMs = Number(refreshInterval) || false;
 
@@ -128,7 +189,7 @@ export default function Dashboard() {
   const liveCounts = useMemo(() => {
     if (!balances) return { warning: 0, critical: 0, emergency: 0 };
     return balances.reduce(
-      (acc, b) => {
+      (acc: { warning: number; critical: number; emergency: number }, b: ClientBalance) => {
         const s = b.severity.toLowerCase();
         if (s === "warning") acc.warning++;
         else if (s === "critical") acc.critical++;
@@ -139,15 +200,46 @@ export default function Dashboard() {
     );
   }, [balances]);
 
-  // Filtered rows
+  const SEVERITY_ORDER: Record<string, number> = { ok: 0, warning: 1, critical: 2, emergency: 3 };
+
+  // Filtered + sorted rows
   const filteredBalances = useMemo(() => {
     if (!balances) return [];
-    return balances.filter((b) => {
+    const filtered = balances.filter((b: ClientBalance) => {
       const matchOrg = orgFilter === "" || b.metric.toLowerCase().includes(orgFilter.toLowerCase());
       const matchStatus = statusFilter === "all" || b.severity.toLowerCase() === statusFilter.toLowerCase();
       return matchOrg && matchStatus;
     });
-  }, [balances, orgFilter, statusFilter]);
+
+    const dir = sortDir === "asc" ? 1 : -1;
+    filtered.sort((a: ClientBalance, b: ClientBalance) => {
+      switch (sortCol) {
+        case "metric":
+          return dir * a.metric.localeCompare(b.metric);
+        case "remainingBalance":
+          return dir * (a.remainingBalance - b.remainingBalance);
+        case "dailyConsumption": {
+          const aVal = a.dailyConsumption > 0 ? a.dailyConsumption : (a.recentDailyConsumption ?? 0);
+          const bVal = b.dailyConsumption > 0 ? b.dailyConsumption : (b.recentDailyConsumption ?? 0);
+          return dir * (aVal - bVal);
+        }
+        case "dailyChangePercent":
+          return dir * ((a.dailyChangePercent ?? 0) - (b.dailyChangePercent ?? 0));
+        case "daysRemaining": {
+          const aD = a.daysRemaining ?? Infinity;
+          const bD = b.daysRemaining ?? Infinity;
+          return dir * (aD - bD);
+        }
+        case "severity":
+          return dir * ((SEVERITY_ORDER[a.severity.toLowerCase()] ?? 0) - (SEVERITY_ORDER[b.severity.toLowerCase()] ?? 0));
+        case "lastUpdated":
+          return dir * (new Date(a.lastUpdated ?? 0).getTime() - new Date(b.lastUpdated ?? 0).getTime());
+        default:
+          return 0;
+      }
+    });
+    return filtered;
+  }, [balances, orgFilter, statusFilter, sortCol, sortDir]);
 
   return (
     <div className="space-y-6">
@@ -315,13 +407,13 @@ export default function Dashboard() {
           <Table>
             <TableHeader>
               <TableRow className="border-border/50 hover:bg-transparent">
-                <TableHead className="font-mono text-xs font-semibold tracking-wider text-muted-foreground uppercase">Metric/Client</TableHead>
-                <TableHead className="font-mono text-xs font-semibold tracking-wider text-muted-foreground uppercase text-right">Balance</TableHead>
-                <TableHead className="font-mono text-xs font-semibold tracking-wider text-muted-foreground uppercase text-right" title="Average daily consumption based on the same calendar period last month">Avg/Day (prev. mo.)</TableHead>
-                <TableHead className="font-mono text-xs font-semibold tracking-wider text-muted-foreground uppercase text-right" title="Yesterday's consumption vs the day before: red = increased (burning faster), green = decreased">Daily Δ</TableHead>
-                <TableHead className="font-mono text-xs font-semibold tracking-wider text-muted-foreground uppercase text-right" title="Estimated days remaining based on same-period-last-month consumption rate">Est. Days</TableHead>
-                <TableHead className="font-mono text-xs font-semibold tracking-wider text-muted-foreground uppercase">Status</TableHead>
-                <TableHead className="font-mono text-xs font-semibold tracking-wider text-muted-foreground uppercase text-right">Last Updated</TableHead>
+                <SortableHead col="metric" label="Metric/Client" sortCol={sortCol} sortDir={sortDir} onSort={handleSort} align="left" />
+                <SortableHead col="remainingBalance" label="Balance" sortCol={sortCol} sortDir={sortDir} onSort={handleSort} align="right" />
+                <SortableHead col="dailyConsumption" label="Avg/Day (prev. mo.)" sortCol={sortCol} sortDir={sortDir} onSort={handleSort} align="right" title="Average daily consumption based on the previous 30 days" />
+                <SortableHead col="dailyChangePercent" label="Daily Δ" sortCol={sortCol} sortDir={sortDir} onSort={handleSort} align="right" title="Yesterday's consumption vs the day before: red = increased (burning faster), green = decreased" />
+                <SortableHead col="daysRemaining" label="Est. Days" sortCol={sortCol} sortDir={sortDir} onSort={handleSort} align="right" title="Estimated days remaining based on average daily consumption rate" />
+                <SortableHead col="severity" label="Status" sortCol={sortCol} sortDir={sortDir} onSort={handleSort} align="left" />
+                <SortableHead col="lastUpdated" label="Last Updated" sortCol={sortCol} sortDir={sortDir} onSort={handleSort} align="right" />
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -346,7 +438,7 @@ export default function Dashboard() {
                   </TableCell>
                 </TableRow>
               ) : (
-                filteredBalances.map((balance) => (
+                filteredBalances.map((balance: ClientBalance) => (
                   <TableRow
                     key={balance.metric}
                     className="border-border/50 hover:bg-muted/50 transition-colors cursor-pointer group"
