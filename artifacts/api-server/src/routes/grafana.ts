@@ -82,52 +82,44 @@ async function fetchGrafanaBalances(): Promise<ClientBalanceData[]> {
     ORDER BY metric
   `;
 
-  // Query B: Average daily consumption using the same calendar period from the previous month.
-  //
-  // Rationale: SMS traffic is not uniform — clients such as banks have heavy payroll traffic
-  // on fixed day ranges each month (e.g. 26th–30th). Using a simple 30-day average would
-  // underestimate consumption during those peaks (or overestimate outside them).
-  //
-  // Instead we look at the equivalent day range in the PREVIOUS month:
-  //   • Start : 1st of last month
-  //   • End   : same day-of-month as today, but in last month
-  //             (e.g. today = May 28  →  window = Apr 1 – Apr 28)
-  //
-  // This means the daily average naturally includes any payroll spike that occurred during
-  // that same period last month, giving a much more accurate estimate of days remaining.
-  // Query B: Average daily consumption over the full previous calendar month.
-  // Using the full previous month (1st to last day) avoids the edge case on the 1st of the
-  // month where "same day last month" collapses the window to a single day and LAG produces
-  // no pairs. EOMONTH gives the last day of last month reliably.
+  // Query B: 30-day average daily consumption.
+  // Uses BalanceHistory-Hour (same table as query A — proven to have sufficient history).
+  // Method: take the most-recent balance snapshot and the snapshot closest to 30 days ago,
+  // then divide the drop by 30. This sidesteps BalanceHistory-Daily which only stores
+  // a short rolling window and would return empty results for longer lookbacks.
   const consumptionSql = `
     WITH ${orgConfigCte},
-    DailyData AS (
+    NowBal AS (
       SELECT
         o.name AS metric,
-        CASE WHEN oc.id IS NOT NULL THEN b.TotalOrganizationBalance ELSE b.TotalUserBalance END AS Balance,
-        LAG(
-          CASE WHEN oc.id IS NOT NULL THEN b.TotalOrganizationBalance ELSE b.TotalUserBalance END
-        ) OVER (PARTITION BY o.name ORDER BY b.CreatedDate ASC) AS Prev_Balance
-      FROM [RiCH-Web-2].[dbo].[BalanceHistory-Daily] b
+        CASE WHEN oc.id IS NOT NULL THEN b.TotalOrganizationBalance ELSE b.TotalUserBalance END AS Bal,
+        ROW_NUMBER() OVER (PARTITION BY o.name ORDER BY b.CreatedDate DESC) AS rn
+      FROM [RiCH-Web-2].[dbo].[BalanceHistory-Hour] b
       JOIN [RiCH-Web].[dbo].[Organisation] o ON o.id = b.id
       LEFT JOIN OrgConfig oc ON oc.id = o.id
-      WHERE
-        -- Full previous calendar month: 1st to last day
-        b.CreatedDate >= DATEFROMPARTS(
-          YEAR(DATEADD(month, -1, CAST(GETDATE() AS DATE))),
-          MONTH(DATEADD(month, -1, CAST(GETDATE() AS DATE))),
-          1
-        )
-        AND b.CreatedDate <= EOMONTH(DATEADD(month, -1, CAST(GETDATE() AS DATE)))
+      WHERE b.CreatedDate >= DATEADD(day, -2, CAST(GETDATE() AS DATE))
+        AND o.Status = 1
+        AND o.FinanceAccountId NOT IN (508, 820, 906, 507, 1003, 552, 553, '', 534)
+    ),
+    Ago30Bal AS (
+      SELECT
+        o.name AS metric,
+        CASE WHEN oc.id IS NOT NULL THEN b.TotalOrganizationBalance ELSE b.TotalUserBalance END AS Bal,
+        ROW_NUMBER() OVER (PARTITION BY o.name ORDER BY b.CreatedDate DESC) AS rn
+      FROM [RiCH-Web-2].[dbo].[BalanceHistory-Hour] b
+      JOIN [RiCH-Web].[dbo].[Organisation] o ON o.id = b.id
+      LEFT JOIN OrgConfig oc ON oc.id = o.id
+      WHERE b.CreatedDate >= DATEADD(day, -32, CAST(GETDATE() AS DATE))
+        AND b.CreatedDate <= DATEADD(day, -28, CAST(GETDATE() AS DATE))
         AND o.Status = 1
         AND o.FinanceAccountId NOT IN (508, 820, 906, 507, 1003, 552, 553, '', 534)
     )
     SELECT
-      metric,
-      AVG(CAST(CASE WHEN (Prev_Balance - Balance) > 0 THEN (Prev_Balance - Balance) ELSE 0 END AS FLOAT)) AS Avg_Daily_Consumption
-    FROM DailyData
-    WHERE Prev_Balance IS NOT NULL
-    GROUP BY metric
+      n.metric,
+      CASE WHEN (a.Bal - n.Bal) > 0 THEN (a.Bal - n.Bal) / 30.0 ELSE 0 END AS Avg_Daily_Consumption
+    FROM NowBal n
+    JOIN Ago30Bal a ON a.metric = n.metric
+    WHERE n.rn = 1 AND a.rn = 1
   `;
 
   // Query D: Yesterday's actual consumption and the day before, per client.
@@ -169,32 +161,42 @@ async function fetchGrafanaBalances(): Promise<ClientBalanceData[]> {
     WHERE c1.CreatedDate = DATEADD(day, -1, CAST(GETDATE() AS DATE))
   `;
 
-  // Query C: Recent 7-day rolling average of daily consumption.
-  // Used for the tooltip comparison — shows "at current burn rate, X days left".
-  // Useful to contrast with the payroll-period rate from Query B.
+  // Query C: 7-day average daily consumption.
+  // Same BalanceHistory-Hour approach as Query B but over a 7-day window.
+  // (balance 7 days ago − current balance) / 7 = average daily burn.
   const recentConsumptionSql = `
     WITH ${orgConfigCte},
-    DailyData AS (
+    NowBal AS (
       SELECT
         o.name AS metric,
-        CASE WHEN oc.id IS NOT NULL THEN b.TotalOrganizationBalance ELSE b.TotalUserBalance END AS Balance,
-        LAG(
-          CASE WHEN oc.id IS NOT NULL THEN b.TotalOrganizationBalance ELSE b.TotalUserBalance END
-        ) OVER (PARTITION BY o.name ORDER BY b.CreatedDate ASC) AS Prev_Balance
-      FROM [RiCH-Web-2].[dbo].[BalanceHistory-Daily] b
+        CASE WHEN oc.id IS NOT NULL THEN b.TotalOrganizationBalance ELSE b.TotalUserBalance END AS Bal,
+        ROW_NUMBER() OVER (PARTITION BY o.name ORDER BY b.CreatedDate DESC) AS rn
+      FROM [RiCH-Web-2].[dbo].[BalanceHistory-Hour] b
       JOIN [RiCH-Web].[dbo].[Organisation] o ON o.id = b.id
       LEFT JOIN OrgConfig oc ON oc.id = o.id
-      WHERE b.CreatedDate >= DATEADD(day, -8, CAST(GETDATE() AS DATE))
-        AND b.CreatedDate <= CAST(GETDATE() AS DATE)
+      WHERE b.CreatedDate >= DATEADD(day, -2, CAST(GETDATE() AS DATE))
+        AND o.Status = 1
+        AND o.FinanceAccountId NOT IN (508, 820, 906, 507, 1003, 552, 553, '', 534)
+    ),
+    Ago7Bal AS (
+      SELECT
+        o.name AS metric,
+        CASE WHEN oc.id IS NOT NULL THEN b.TotalOrganizationBalance ELSE b.TotalUserBalance END AS Bal,
+        ROW_NUMBER() OVER (PARTITION BY o.name ORDER BY b.CreatedDate DESC) AS rn
+      FROM [RiCH-Web-2].[dbo].[BalanceHistory-Hour] b
+      JOIN [RiCH-Web].[dbo].[Organisation] o ON o.id = b.id
+      LEFT JOIN OrgConfig oc ON oc.id = o.id
+      WHERE b.CreatedDate >= DATEADD(day, -9, CAST(GETDATE() AS DATE))
+        AND b.CreatedDate <= DATEADD(day, -5, CAST(GETDATE() AS DATE))
         AND o.Status = 1
         AND o.FinanceAccountId NOT IN (508, 820, 906, 507, 1003, 552, 553, '', 534)
     )
     SELECT
-      metric,
-      AVG(CAST(CASE WHEN (Prev_Balance - Balance) > 0 THEN (Prev_Balance - Balance) ELSE 0 END AS FLOAT)) AS Avg_Daily_Consumption_Recent
-    FROM DailyData
-    WHERE Prev_Balance IS NOT NULL
-    GROUP BY metric
+      n.metric,
+      CASE WHEN (a.Bal - n.Bal) > 0 THEN (a.Bal - n.Bal) / 7.0 ELSE 0 END AS Avg_Daily_Consumption_Recent
+    FROM NowBal n
+    JOIN Ago7Bal a ON a.metric = n.metric
+    WHERE n.rn = 1 AND a.rn = 1
   `;
 
   const payload = {
@@ -254,6 +256,15 @@ async function fetchGrafanaBalances(): Promise<ClientBalanceData[]> {
     const consumptionFrames = data?.results?.B?.frames ?? [];
     const recentConsumptionFrames = data?.results?.C?.frames ?? [];
     const dayOverDayFrames = data?.results?.D?.frames ?? [];
+
+    // Log any Grafana-level errors per query to diagnose missing data
+    for (const [refId, result] of Object.entries(data?.results ?? {})) {
+      if (result.error) {
+        logger.warn({ refId, error: result.error }, "Grafana sub-query returned error");
+      } else {
+        logger.info({ refId, frameCount: result.frames?.length ?? 0 }, "Grafana sub-query frames");
+      }
+    }
 
     if (balanceFrames.length === 0) {
       logger.warn("Grafana returned no balance frames");
