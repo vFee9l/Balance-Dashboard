@@ -766,8 +766,8 @@ async function sendEmail(opts: {
   if (!smtpHost || !smtpUser || !smtpFrom) return false;
   try {
     const port = smtpPort ?? 587;
-    // Use the explicit TLS checkbox; fall back to inferring from port 465.
-    const secure = smtpTls ?? (port === 465);
+    // Only use direct SSL/TLS when explicitly enabled; never infer from port.
+    const secure = smtpTls === true;
     const transporter = nodemailer.createTransport({
       host: smtpHost,
       port,

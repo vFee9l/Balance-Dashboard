@@ -118,7 +118,8 @@ router.post("/settings/test-email", async (req, res): Promise<void> => {
 
   try {
     const port = smtpPort ?? 587;
-    const secure = smtpTls ?? (port === 465);
+    // Only use direct SSL/TLS when explicitly enabled; never infer from port.
+    const secure = smtpTls === true;
     const transporter = nodemailer.createTransport({
       host: smtpHost,
       port,
