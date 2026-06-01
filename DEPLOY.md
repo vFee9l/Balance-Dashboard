@@ -119,16 +119,13 @@ pnpm --filter @workspace/db run push
 
 ## Run with pm2
 
+pm2 reads environment variables from the `ecosystem.config.cjs` file, which in turn loads them from `.env`.
+
 ### Start the application
 
 ```bash
 cd /opt/balance-alert
-
-pm2 start artifacts/api-server/dist/index.mjs \
-  --name balance-alert \
-  --env-file /opt/balance-alert/.env \
-  --interpreter node
-
+pm2 start ecosystem.config.cjs
 pm2 save
 ```
 

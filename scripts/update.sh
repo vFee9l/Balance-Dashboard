@@ -55,13 +55,10 @@ pnpm --filter @workspace/db run push
 echo ""
 echo "Restarting pm2 process '$APP_NAME'..."
 if pm2 describe "$APP_NAME" > /dev/null 2>&1; then
-  pm2 restart "$APP_NAME" --update-env
+  pm2 reload ecosystem.config.cjs --update-env
 else
   echo "Process not found in pm2 — starting fresh..."
-  pm2 start "$APP_DIR/artifacts/api-server/dist/index.mjs" \
-    --name "$APP_NAME" \
-    --env-file "$ENV_FILE" \
-    --interpreter node
+  pm2 start "$APP_DIR/ecosystem.config.cjs"
   pm2 save
 fi
 
