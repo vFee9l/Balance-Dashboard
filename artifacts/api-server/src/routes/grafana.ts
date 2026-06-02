@@ -628,14 +628,17 @@ async function sendSmsNotification(
     }
 
     const isJson = typeof parsedBody === "object";
+    const outgoingBody = isJson ? JSON.stringify(parsedBody) : rawBody;
+    logger.info({ phoneNumber, url: settings.smsApiUrl, body: outgoingBody }, "SMS API request");
     const resp = await fetch(settings.smsApiUrl, {
       method: "POST",
       headers: { "Content-Type": isJson ? "application/json" : "text/plain" },
-      body: isJson ? JSON.stringify(parsedBody) : rawBody,
+      body: outgoingBody,
       signal: AbortSignal.timeout(10000),
     });
     if (!resp.ok) {
-      logger.warn({ status: resp.status, phoneNumber }, "SMS API returned error");
+      const responseText = await resp.text().catch(() => "(unreadable)");
+      logger.warn({ status: resp.status, phoneNumber, responseBody: responseText, sentBody: outgoingBody }, "SMS API returned error");
     }
     return resp.ok;
   } catch (err) {

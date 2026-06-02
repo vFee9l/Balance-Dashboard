@@ -100,6 +100,43 @@ export default function SettingsPage() {
   const updateSettingsMutation = useUpdateSettings();
   const verifyOtpMutation = useVerifyOtp();
 
+  const [testSmsTo, setTestSmsTo] = useState("");
+  const [testSmsSending, setTestSmsSending] = useState(false);
+
+  const handleTestSms = async () => {
+    if (!testSmsTo.trim()) {
+      toast({ variant: "destructive", title: "Missing number", description: "Enter a recipient phone number." });
+      return;
+    }
+    setTestSmsSending(true);
+    try {
+      const res = await fetch("/api/settings/test-sms", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ to: testSmsTo.trim() }),
+      });
+      const data = await res.json() as { success: boolean; error?: string; sentBody?: string };
+      if (data.success) {
+        toast({ title: "Test SMS sent", description: `Delivered to ${testSmsTo}` });
+      } else {
+        toast({
+          variant: "destructive",
+          title: "SMS failed",
+          description: (
+            <div className="space-y-1 text-xs">
+              <p>{data.error}</p>
+              {data.sentBody && <p className="font-mono opacity-70 break-all">Sent: {data.sentBody}</p>}
+            </div>
+          ) as unknown as string,
+        });
+      }
+    } catch (err: unknown) {
+      toast({ variant: "destructive", title: "Network error", description: err instanceof Error ? err.message : "Request failed." });
+    } finally {
+      setTestSmsSending(false);
+    }
+  };
+
   const [testEmailTo, setTestEmailTo] = useState("");
   const [testEmailSending, setTestEmailSending] = useState(false);
 
@@ -420,6 +457,31 @@ export default function SettingsPage() {
                   </FormDescription>
                 </FormItem>
               )} />
+              <Separator className="my-2 border-border/40" />
+              <div className="space-y-2">
+                <p className="text-sm font-medium text-foreground">Send Test SMS</p>
+                <p className="text-xs text-muted-foreground">Sends a test message using the current saved SMS settings. If it fails, the error toast shows exactly what was sent and what the API replied.</p>
+                <div className="flex gap-2">
+                  <Input
+                    type="tel"
+                    placeholder="+966500000000"
+                    value={testSmsTo}
+                    onChange={e => setTestSmsTo(e.target.value)}
+                    className="bg-background font-mono text-sm flex-1"
+                    onKeyDown={e => e.key === "Enter" && handleTestSms()}
+                  />
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={handleTestSms}
+                    disabled={testSmsSending}
+                    className="shrink-0"
+                  >
+                    <Send className="w-4 h-4 mr-2" />
+                    {testSmsSending ? "Sending…" : "Send Test"}
+                  </Button>
+                </div>
+              </div>
             </CardContent>
           </Card>
 
