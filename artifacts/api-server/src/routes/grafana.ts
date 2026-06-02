@@ -371,6 +371,35 @@ function computeSeverity(
   return "ok";
 }
 
+/**
+ * Format a numeric balance/consumption value for SMS — mirrors the
+ * dashboard's K/M thresholds and adds comma thousands-separators so
+ * the number is easy to read.
+ *
+ * Examples:
+ *   24 500        →  "24.5 K"
+ *   78 630 000    →  "78.63 M"
+ *   1 555 000 000 →  "1,555.00 M"
+ *   800           →  "800"
+ */
+function formatBalanceSms(value: number): string {
+  const abs = Math.abs(value);
+  if (abs >= 1_000_000) {
+    const v = value / 1_000_000;
+    // toLocaleString adds commas to the integer part (e.g. "1,555.22 M")
+    return (
+      v.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + " M"
+    );
+  }
+  if (abs >= 1_000) {
+    const v = value / 1_000;
+    return (
+      v.toLocaleString("en-US", { minimumFractionDigits: 1, maximumFractionDigits: 1 }) + " K"
+    );
+  }
+  return Math.round(value).toLocaleString("en-US");
+}
+
 function buildSmsBody(template: string | null | undefined, phone: string, message: string): string {
   const sub = (s: string) =>
     s.replace(/\{phone\}/g, phone)
@@ -877,12 +906,10 @@ export async function runAlertChecks(): Promise<{
       continue;
     }
 
-    const balanceMil = (b.remainingBalance / 1_000_000).toFixed(2);
-    const consumptionMil = (effectiveDaily / 1_000_000).toFixed(2);
     const alertText =
       `[Balance Alert] ${severity.toUpperCase()} — Client: ${b.metric}\n` +
-      `Remaining Balance: ${balanceMil}M\n` +
-      `Daily Consumption: ${consumptionMil}M\n` +
+      `Remaining Balance: ${formatBalanceSms(b.remainingBalance)}\n` +
+      `Daily Consumption: ${formatBalanceSms(effectiveDaily)}/d\n` +
       `Estimated Days Remaining: ${daysRemaining.toFixed(1)} days`;
     const subject = `[${severity.toUpperCase()}] SMS Balance Alert — ${b.metric} (${daysRemaining.toFixed(1)} days left)`;
 
