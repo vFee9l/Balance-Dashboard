@@ -2,11 +2,15 @@ import express, { type Express } from "express";
 import cors from "cors";
 import pinoHttp from "pino-http";
 import session from "express-session";
-import { resolve, join } from "path";
-import { existsSync } from "fs";
+import FileStoreFactory from "session-file-store";
+import { resolve, join, dirname } from "path";
+import { existsSync, mkdirSync } from "fs";
+import { fileURLToPath } from "url";
 import router from "./routes";
 import { logger } from "./lib/logger";
 import { db, settingsTable } from "@workspace/db";
+
+const FileStore = FileStoreFactory(session);
 
 declare module "express-session" {
   interface SessionData {
@@ -15,6 +19,17 @@ declare module "express-session" {
 }
 
 const sessionSecret = process.env["SESSION_SECRET"] ?? "balance-alert-secret-change-me";
+
+// Persist sessions to disk so restarts don't invalidate logged-in users and
+// to avoid the MemoryStore production warning.
+const __filename = fileURLToPath(import.meta.url);
+const __dirname_esm = dirname(__filename);
+// Place sessions folder next to the built bundle, or use SESSIONS_PATH override.
+const sessionsPath = process.env["SESSIONS_PATH"] ?? resolve(__dirname_esm, "../sessions");
+if (!existsSync(sessionsPath)) {
+  mkdirSync(sessionsPath, { recursive: true });
+}
+logger.info({ sessionsPath }, "Session file store initialized");
 
 const app: Express = express();
 
@@ -43,6 +58,12 @@ app.use(express.urlencoded({ extended: true }));
 
 app.use(
   session({
+    store: new FileStore({
+      path: sessionsPath,
+      retries: 1,
+      ttl: 8 * 60 * 60, // 8 hours in seconds
+      reapInterval: 60 * 60, // clean up expired sessions every hour
+    }),
     secret: sessionSecret,
     resave: false,
     saveUninitialized: false,
@@ -56,8 +77,8 @@ app.use(
 
 // Auth guard middleware: enforce TOTP login when it's enabled
 app.use("/api", async (req, res, next) => {
-  // Always allow: health check, alert-failures probe, auth routes
-  if (req.path === "/healthz" || req.path === "/health/alert-failures" || req.path.startsWith("/auth/")) {
+  // Always allow: health check, monitoring probes, auth routes
+  if (req.path === "/healthz" || req.path.startsWith("/health/") || req.path.startsWith("/auth/")) {
     return next();
   }
 

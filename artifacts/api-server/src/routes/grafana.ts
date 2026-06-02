@@ -2,6 +2,7 @@ import { Router } from "express";
 import { sql } from "drizzle-orm";
 import { db, settingsTable, alertHistoryTable, contactsTable, clientDailyConsumptionTable } from "@workspace/db";
 import { logger } from "../lib/logger";
+import { recordGrafanaFetch } from "../lib/healthTracker.js";
 import nodemailer from "nodemailer";
 
 const router = Router();
@@ -261,6 +262,7 @@ async function fetchGrafanaBalances(): Promise<ClientBalanceData[]> {
 
     if (!resp.ok) {
       logger.warn({ status: resp.status, url: grafanaUrl }, "Grafana query failed");
+      recordGrafanaFetch(false, `HTTP ${resp.status}`);
       return [];
     }
 
@@ -281,12 +283,16 @@ async function fetchGrafanaBalances(): Promise<ClientBalanceData[]> {
 
     if (balanceFrames.length === 0) {
       logger.warn("Grafana returned no balance frames");
+      recordGrafanaFetch(false, "No balance frames returned");
       return [];
     }
 
+    recordGrafanaFetch(true);
     return parseFramesToBalances(balanceFrames, consumptionFrames, recentConsumptionFrames, dayOverDayFrames);
   } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
     logger.error({ err }, "Grafana fetch error");
+    recordGrafanaFetch(false, msg);
     return [];
   }
 }
