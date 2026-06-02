@@ -1,0 +1,42 @@
+[TAILING] Tailing last 15 lines for [all] processes (change the value with --lines option)
+/root/.pm2/pm2.log last 15 lines:
+PM2        | 2026-06-01T18:25:52: PM2 log: Application log path : /root/.pm2/logs
+PM2        | 2026-06-01T18:25:52: PM2 log: Worker Interval      : 30000
+PM2        | 2026-06-01T18:25:52: PM2 log: Process dump file    : /root/.pm2/dump.pm2
+PM2        | 2026-06-01T18:25:52: PM2 log: Concurrent actions   : 2
+PM2        | 2026-06-01T18:25:52: PM2 log: SIGTERM timeout      : 1600
+PM2        | 2026-06-01T18:25:52: PM2 log: Runtime Binary       : /usr/bin/node
+PM2        | 2026-06-01T18:25:52: PM2 log: ===============================================================================
+PM2        | 2026-06-01T18:25:52: PM2 log: App [balance-alert:0] starting in -fork mode-
+PM2        | 2026-06-01T18:25:52: PM2 log: App [balance-alert:0] online
+PM2        | 2026-06-02T13:21:47: PM2 log: Process 0 in a stopped status, starting it
+PM2        | 2026-06-02T13:21:47: PM2 log: Stopping app:balance-alert id:0
+PM2        | 2026-06-02T13:21:47: PM2 log: App [balance-alert:0] exited with code [0] via signal [SIGINT]
+PM2        | 2026-06-02T13:21:47: PM2 log: pid=3238012 msg=process tree killed (1 pids)
+PM2        | 2026-06-02T13:21:47: PM2 log: App [balance-alert:0] starting in -fork mode-
+PM2        | 2026-06-02T13:21:47: PM2 log: App [balance-alert:0] online
+
+/root/.pm2/logs/balance-alert-error.log last 15 lines:
+0|balance- | Warning: connect.session() MemoryStore is not
+0|balance- | designed for a production environment, as it will leak
+0|balance- | memory, and will not scale past a single process.
+0|balance- | Warning: connect.session() MemoryStore is not
+0|balance- | designed for a production environment, as it will leak
+0|balance- | memory, and will not scale past a single process.
+
+/root/.pm2/logs/balance-alert-out.log last 15 lines:
+0|balance- | st. Please see the <a rel=\"help-page\" href=\"https://xservices.rich.sa/RiCHClientServiceREST.svc/help\">service help page</a> for constructing valid requests to the service. The exception message is 'The incoming message h
+as an unexpected message format 'Raw'. The expected message formats for the operation are 'Xml', 'Json'. This can be because a WebContentTypeMapper has not been configured on the binding. See the documentation of WebContentTypeMapper for
+ more details.'. See server logs for more details. The exception stack trace is: </p>\n      <p>   at CoreWCF.Dispatcher.DemultiplexingDispatchMessageFormatter.DeserializeRequest(Message message, Object[] parameters)\n   at CoreWCF.Dispa
+tcher.UriTemplateDispatchFormatter.DeserializeRequest(Message message, Object[] parameters)\n   at CoreWCF.Dispatcher.DispatchOperationRuntime.DeserializeInputs(MessageRpc rpc)\n   at CoreWCF.Dispatcher.DispatchOperationRuntime.InvokeAsy
+nc(MessageRpc rpc)\n   at CoreWCF.Dispatcher.DispatchOperationRuntime.InvokeAsync(MessageRpc rpc)\n   at CoreWCF.Dispatcher.ImmutableDispatchRuntime.ProcessMessageAsync(MessageRpc rpc)\n   at CoreWCF.Dispatcher.MessageRpc.ProcessAsync(Bo
+olean isOperationContextSet)</p>\n    </div>\n  </body>\n</html>","sentBody":"{\n  \"username\": \"balance@t2.sa\",\n  \"password\": \"2Sds!okqgY\",\n  \"number\": \"+966504661199\",\n  \"message\": \"[Balance Alert] CRITICAL — Client: S
+TC Pay\nRemaining Balance: 78.63M\nDaily Consumption: 6.46M\nEstimated Days Remaining: 12.2 days\",\n  \"sender\": \"RiCH\"\n}","msg":"SMS API returned error"}
+0|balance- | {"level":30,"time":1780395791897,"pid":3446884,"hostname":"upu-rch-rmq02.t2.local","req":{"id":16,"method":"POST","url":"/api/alerts/trigger"},"res":{"statusCode":200},"responseTime":12645,"msg":"request completed"}
+0|balance- | {"level":30,"time":1780395791908,"pid":3446884,"hostname":"upu-rch-rmq02.t2.local","req":{"id":17,"method":"GET","url":"/api/alerts/summary"},"res":{"statusCode":200},"responseTime":4,"msg":"request completed"}
+0|balance- | {"level":30,"time":1780395792204,"pid":3446884,"hostname":"upu-rch-rmq02.t2.local","refId":"A","frameCount":1,"msg":"Grafana sub-query frames"}
+0|balance- | {"level":30,"time":1780395792204,"pid":3446884,"hostname":"upu-rch-rmq02.t2.local","refId":"B","frameCount":1,"msg":"Grafana sub-query frames"}
+0|balance- | {"level":30,"time":1780395792204,"pid":3446884,"hostname":"upu-rch-rmq02.t2.local","refId":"C","frameCount":1,"msg":"Grafana sub-query frames"}
+0|balance- | {"level":30,"time":1780395792204,"pid":3446884,"hostname":"upu-rch-rmq02.t2.local","refId":"D","frameCount":1,"msg":"Grafana sub-query frames"}
+0|balance- | {"level":30,"time":1780395792208,"pid":3446884,"hostname":"upu-rch-rmq02.t2.local","req":{"id":18,"method":"GET","url":"/api/grafana/balances"},"res":{"statusCode":200},"responseTime":303,"msg":"request completed"}
+0|balance- | {"level":30,"time":1780395801967,"pid":3446884,"hostname":"upu-rch-rmq02.t2.local","req":{"id":19,"method":"GET","url":"/api/alerts/history"},"res":{"statusCode":200},"responseTime":3,"msg":"request completed"}

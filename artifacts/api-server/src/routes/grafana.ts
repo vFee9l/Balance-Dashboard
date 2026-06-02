@@ -366,13 +366,34 @@ function computeSeverity(
 }
 
 function buildSmsBody(template: string | null | undefined, phone: string, message: string): string {
+  const sub = (s: string) =>
+    s.replace(/\{phone\}/g, phone)
+     .replace(/\{to\}/g, phone)
+     .replace(/\{number\}/g, phone)
+     .replace(/\{message\}/g, message)
+     .replace(/\{text\}/g, message);
+
   if (!template) return JSON.stringify({ to: phone, message });
-  return template
-    .replace(/\{phone\}/g, phone)
-    .replace(/\{to\}/g, phone)
-    .replace(/\{number\}/g, phone)
-    .replace(/\{message\}/g, message)
-    .replace(/\{text\}/g, message);
+
+  // Try to parse as JSON and substitute into the object — this ensures
+  // newlines and special chars in `message` are properly JSON-escaped on stringify.
+  try {
+    const parsed = JSON.parse(template) as unknown;
+    function subInValue(v: unknown): unknown {
+      if (typeof v === "string") return sub(v);
+      if (Array.isArray(v)) return v.map(subInValue);
+      if (v !== null && typeof v === "object") {
+        return Object.fromEntries(
+          Object.entries(v as Record<string, unknown>).map(([k, val]) => [k, subInValue(val)])
+        );
+      }
+      return v;
+    }
+    return JSON.stringify(subInValue(parsed));
+  } catch {
+    // Template is not JSON — fall back to plain string substitution
+    return sub(template);
+  }
 }
 
 router.get("/grafana/consumption-history", async (req, res): Promise<void> => {

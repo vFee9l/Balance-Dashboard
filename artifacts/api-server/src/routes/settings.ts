@@ -119,20 +119,35 @@ router.post("/settings/test-sms", async (req, res): Promise<void> => {
   const testMessage = "BalanceAlert test SMS — your SMS configuration is working correctly.";
 
   function buildBody(template: string | null | undefined, phone: string, message: string): string {
+    const sub = (s: string) =>
+      s.replace(/\{phone\}/g, phone)
+       .replace(/\{to\}/g, phone)
+       .replace(/\{number\}/g, phone)
+       .replace(/\{message\}/g, message)
+       .replace(/\{text\}/g, message);
+
     if (!template) return JSON.stringify({ to: phone, message });
-    return template
-      .replace(/\{phone\}/g, phone)
-      .replace(/\{to\}/g, phone)
-      .replace(/\{number\}/g, phone)
-      .replace(/\{message\}/g, message)
-      .replace(/\{text\}/g, message);
+
+    try {
+      const parsed = JSON.parse(template) as unknown;
+      function subInValue(v: unknown): unknown {
+        if (typeof v === "string") return sub(v);
+        if (Array.isArray(v)) return v.map(subInValue);
+        if (v !== null && typeof v === "object") {
+          return Object.fromEntries(
+            Object.entries(v as Record<string, unknown>).map(([k, val]) => [k, subInValue(val)])
+          );
+        }
+        return v;
+      }
+      return JSON.stringify(subInValue(parsed));
+    } catch {
+      return sub(template);
+    }
   }
 
-  const rawBody = buildBody(smsBodyTemplate, to, testMessage);
-  let parsedBody: unknown;
-  try { parsedBody = JSON.parse(rawBody); } catch { parsedBody = rawBody; }
-  const isJson = typeof parsedBody === "object";
-  const outgoingBody = isJson ? JSON.stringify(parsedBody) : rawBody;
+  const outgoingBody = buildBody(smsBodyTemplate, to, testMessage);
+  const isJson = outgoingBody.trimStart().startsWith("{") || outgoingBody.trimStart().startsWith("[");
 
   try {
     const resp = await fetch(smsApiUrl, {
