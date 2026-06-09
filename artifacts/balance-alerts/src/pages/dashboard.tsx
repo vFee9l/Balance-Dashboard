@@ -304,9 +304,13 @@ export default function Dashboard() {
         </p>
       )}
 
-      {/* Summary cards — live counts from balance data */}
+      {/* Summary cards — live counts from balance data; clicking a severity card filters the table */}
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-        <Card className="bg-card/50 backdrop-blur">
+        <Card
+          className={`bg-card/50 backdrop-blur cursor-pointer transition-all hover:bg-card/70 ${statusFilter === "all" ? "ring-1 ring-primary/60" : ""}`}
+          onClick={() => setStatusFilter("all")}
+          title="Show all clients"
+        >
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">Total Alerts Sent</CardTitle>
             <Activity className="h-4 w-4 text-muted-foreground" />
@@ -321,7 +325,11 @@ export default function Dashboard() {
           </CardContent>
         </Card>
 
-        <Card className="bg-card/50 backdrop-blur border-yellow-500/20">
+        <Card
+          className={`bg-card/50 backdrop-blur cursor-pointer transition-all hover:bg-card/70 border-yellow-500/20 hover:border-yellow-500/60 ${statusFilter === "warning" ? "ring-1 ring-yellow-500" : ""}`}
+          onClick={() => setStatusFilter(statusFilter === "warning" ? "all" : "warning")}
+          title="Filter: Warning clients"
+        >
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium text-yellow-500">Clients in Warning</CardTitle>
             <AlertCircle className="h-4 w-4 text-yellow-500" />
@@ -334,7 +342,11 @@ export default function Dashboard() {
           </CardContent>
         </Card>
 
-        <Card className="bg-card/50 backdrop-blur border-red-500/20">
+        <Card
+          className={`bg-card/50 backdrop-blur cursor-pointer transition-all hover:bg-card/70 border-red-500/20 hover:border-red-500/60 ${statusFilter === "critical" ? "ring-1 ring-red-500" : ""}`}
+          onClick={() => setStatusFilter(statusFilter === "critical" ? "all" : "critical")}
+          title="Filter: Critical clients"
+        >
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium text-red-500">Clients in Critical</CardTitle>
             <ShieldAlert className="h-4 w-4 text-red-500" />
@@ -347,7 +359,11 @@ export default function Dashboard() {
           </CardContent>
         </Card>
 
-        <Card className="bg-card/50 backdrop-blur border-red-900/40">
+        <Card
+          className={`bg-card/50 backdrop-blur cursor-pointer transition-all hover:bg-card/70 border-red-900/40 hover:border-red-400/60 ${statusFilter === "emergency" ? "ring-1 ring-red-400" : ""}`}
+          onClick={() => setStatusFilter(statusFilter === "emergency" ? "all" : "emergency")}
+          title="Filter: Emergency clients"
+        >
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium text-red-400">Emergency Status</CardTitle>
             <Activity className="h-4 w-4 text-red-400" />
