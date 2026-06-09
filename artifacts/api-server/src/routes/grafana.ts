@@ -57,6 +57,7 @@ async function fetchGrafanaBalances(): Promise<ClientBalanceData[]> {
       WHERE [Key] = 'Use Organization Balance' AND LOWER([Value]) = 'true'
       UNION SELECT '47a48d76-a97b-4bd2-83b4-2f6f08564261'
       UNION SELECT '233d22b2-f80f-44aa-b95d-a6524f4f03ef'
+      UNION SELECT '52cf3b17-a7fc-4e1c-b62a-5ac5cd2516c1'
     )
   `;
 
@@ -213,6 +214,25 @@ async function fetchGrafanaBalances(): Promise<ClientBalanceData[]> {
     WHERE n.rn = 1 AND o.rn = 1
   `;
 
+  // Query E: Direct Organisation.Balance for orgs that use "Use Organization Balance"
+  // but have NO rows in BalanceHistory-Hour (e.g. AlRajhi-1, AlRajhi-2, AlRajhi-3).
+  // These sub-orgs store their balance directly on the Organisation record, not in
+  // the hourly history table. Mirrors the "Organization Balance" panel in RiCH Balance dashboard.
+  const orgDirectBalanceSql = `
+    SELECT DISTINCT o.Name AS metric, o.Balance AS Remaining_Balance
+    FROM [RiCH-Web].[dbo].[user] u
+    JOIN [RiCH-Web].[dbo].[Organisation] o ON o.Id = u.OrganisationId
+    WHERE o.Status = 1 AND u.Status = 1
+      AND o.Id IN (
+        SELECT DISTINCT OrganizationId
+        FROM [RiCH-Web].[dbo].[OrganizationConfiguration]
+        WHERE [Key] = 'Use Organization Balance' AND LOWER([Value]) = 'true'
+        UNION SELECT '47a48d76-a97b-4bd2-83b4-2f6f08564261'
+        UNION SELECT '233d22b2-f80f-44aa-b95d-a6524f4f03ef'
+        UNION SELECT '52cf3b17-a7fc-4e1c-b62a-5ac5cd2516c1'
+      )
+  `;
+
   const payload = {
     queries: [
       {
@@ -247,6 +267,14 @@ async function fetchGrafanaBalances(): Promise<ClientBalanceData[]> {
         rawQuery: true,
         dataset: "reportag4-25",
       },
+      {
+        refId: "E",
+        datasource: { type: "mssql", uid: "af0fc2y09shdsd" },
+        rawSql: orgDirectBalanceSql,
+        format: "table",
+        rawQuery: true,
+        dataset: "reportag4-25",
+      },
     ],
     from: "now-65d",
     to: "now",
@@ -271,6 +299,7 @@ async function fetchGrafanaBalances(): Promise<ClientBalanceData[]> {
     const consumptionFrames = data?.results?.B?.frames ?? [];
     const recentConsumptionFrames = data?.results?.C?.frames ?? [];
     const dayOverDayFrames = data?.results?.D?.frames ?? [];
+    const directBalanceFrames = data?.results?.E?.frames ?? [];
 
     // Log any Grafana-level errors per query to diagnose missing data
     for (const [refId, result] of Object.entries(data?.results ?? {})) {
@@ -281,14 +310,14 @@ async function fetchGrafanaBalances(): Promise<ClientBalanceData[]> {
       }
     }
 
-    if (balanceFrames.length === 0) {
+    if (balanceFrames.length === 0 && directBalanceFrames.length === 0) {
       logger.warn("Grafana returned no balance frames");
       recordGrafanaFetch(false, "No balance frames returned");
       return [];
     }
 
     recordGrafanaFetch(true);
-    return parseFramesToBalances(balanceFrames, consumptionFrames, recentConsumptionFrames, dayOverDayFrames);
+    return parseFramesToBalances(balanceFrames, consumptionFrames, recentConsumptionFrames, dayOverDayFrames, directBalanceFrames);
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     logger.error({ err }, "Grafana fetch error");
@@ -318,10 +347,21 @@ function parseFramesToBalances(
   balanceFrames: GrafanaFrame[],
   consumptionFrames: GrafanaFrame[],
   recentConsumptionFrames: GrafanaFrame[],
-  dayOverDayFrames: GrafanaFrame[]
+  dayOverDayFrames: GrafanaFrame[],
+  directBalanceFrames: GrafanaFrame[] = []
 ): ClientBalanceData[] {
   // Build balance map: metric → latest remaining balance
   const balanceMap = extractFrameMap(balanceFrames, "metric", "Remaining_Balance");
+
+  // Merge direct-balance entries (Organisation.Balance) for orgs that have no
+  // BalanceHistory-Hour rows (e.g. AlRajhi-1, AlRajhi-2, AlRajhi-3).
+  // Only add if not already present — BalanceHistory-Hour takes precedence.
+  const directBalanceMap = extractFrameMap(directBalanceFrames, "metric", "Remaining_Balance");
+  for (const [metric, balance] of directBalanceMap.entries()) {
+    if (!balanceMap.has(metric)) {
+      balanceMap.set(metric, balance);
+    }
+  }
 
   // Build consumption map: metric → avg daily consumption (same period last month)
   const consumptionMap = extractFrameMap(consumptionFrames, "metric", "Avg_Daily_Consumption");
@@ -465,6 +505,7 @@ router.get("/grafana/consumption-history", async (req, res): Promise<void> => {
       WHERE [Key] = 'Use Organization Balance' AND LOWER([Value]) = 'true'
       UNION SELECT '47a48d76-a97b-4bd2-83b4-2f6f08564261'
       UNION SELECT '233d22b2-f80f-44aa-b95d-a6524f4f03ef'
+      UNION SELECT '52cf3b17-a7fc-4e1c-b62a-5ac5cd2516c1'
     )
   `;
 
