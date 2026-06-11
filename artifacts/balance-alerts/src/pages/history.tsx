@@ -6,6 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { format } from "date-fns";
 import { CheckCircle2, XCircle, Mail, MessageSquare, Send } from "lucide-react";
 
@@ -100,10 +101,22 @@ export default function History() {
                           SUCCESS
                         </div>
                       ) : (
-                        <div className="flex items-center justify-end text-destructive text-sm font-medium" title={entry.errorMessage || "Unknown error"}>
-                          <XCircle className="w-4 h-4 mr-1" />
-                          FAILED
-                        </div>
+                        <TooltipProvider delayDuration={100}>
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <div className="flex items-center justify-end text-destructive text-sm font-medium cursor-help">
+                                <XCircle className="w-4 h-4 mr-1" />
+                                FAILED
+                              </div>
+                            </TooltipTrigger>
+                            <TooltipContent
+                              side="left"
+                              className="max-w-xs text-xs break-words bg-destructive/10 border-destructive/30 text-destructive-foreground"
+                            >
+                              {entry.errorMessage || "Unknown error"}
+                            </TooltipContent>
+                          </Tooltip>
+                        </TooltipProvider>
                       )}
                     </TableCell>
                   </TableRow>

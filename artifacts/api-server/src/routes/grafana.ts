@@ -712,8 +712,8 @@ async function sendSmsNotification(
     smsApiUrl?: string | null;
     smsBodyTemplate?: string | null;
   }
-): Promise<boolean> {
-  if (!settings.smsApiUrl) return false;
+): Promise<{ ok: boolean; error: string | null }> {
+  if (!settings.smsApiUrl) return { ok: false, error: "SMS API URL not configured" };
   try {
     const rawBody = buildSmsBody(settings.smsBodyTemplate, phoneNumber, message);
 
@@ -733,14 +733,29 @@ async function sendSmsNotification(
       body: outgoingBody,
       signal: AbortSignal.timeout(10000),
     });
+
+    const responseText = await resp.text().catch(() => "(unreadable)");
+
     if (!resp.ok) {
-      const responseText = await resp.text().catch(() => "(unreadable)");
-      logger.warn({ status: resp.status, phoneNumber, responseBody: responseText, sentBody: outgoingBody }, "SMS API returned error");
+      logger.warn({ status: resp.status, phoneNumber, responseBody: responseText, sentBody: outgoingBody }, "SMS API returned HTTP error");
+      return { ok: false, error: `HTTP ${resp.status}: ${responseText}` };
     }
-    return resp.ok;
+
+    let apiJson: { Code?: number; Description?: string; HasError?: boolean } = {};
+    try { apiJson = JSON.parse(responseText); } catch { /* non-JSON body */ }
+
+    if (apiJson.Code !== undefined && apiJson.Code !== 0) {
+      const desc = apiJson.Description ?? responseText;
+      logger.warn({ phoneNumber, code: apiJson.Code, description: desc }, "SMS API returned failure code");
+      return { ok: false, error: `Code ${apiJson.Code}: ${desc}` };
+    }
+
+    logger.info({ phoneNumber, response: apiJson }, "SMS sent successfully");
+    return { ok: true, error: null };
   } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
     logger.warn({ err, phoneNumber }, "SMS send failed");
-    return false;
+    return { ok: false, error: msg };
   }
 }
 
@@ -1018,10 +1033,15 @@ export async function runAlertChecks(): Promise<{
 
       if (eligibleContacts.length > 0) {
         let smsSuccess = 0;
+        const smsErrors: string[] = [];
         for (const contact of eligibleContacts) {
-          const ok = await sendSmsNotification(contact.phoneNumber, alertText, settings);
-          if (ok) { smsSuccess++; notificationsSent++; contactsNotified++; }
-          else { errors.push(`SMS failed for ${contact.fullName} (${contact.phoneNumber})`); }
+          const result = await sendSmsNotification(contact.phoneNumber, alertText, settings);
+          if (result.ok) { smsSuccess++; notificationsSent++; contactsNotified++; }
+          else {
+            const errDetail = result.error ?? "Unknown error";
+            errors.push(`SMS failed for ${contact.fullName} (${contact.phoneNumber}): ${errDetail}`);
+            smsErrors.push(`${contact.fullName}: ${errDetail}`);
+          }
         }
         await db.insert(alertHistoryTable).values({
           metric: b.metric,
@@ -1030,7 +1050,7 @@ export async function runAlertChecks(): Promise<{
           channel: "sms",
           recipientCount: smsSuccess,
           success: smsSuccess > 0,
-          errorMessage: smsSuccess === 0 ? "All SMS sends failed" : null,
+          errorMessage: smsErrors.length > 0 ? smsErrors.join(" | ") : null,
         });
       }
     }
