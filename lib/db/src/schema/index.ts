@@ -2,3 +2,6 @@ export * from "./contacts";
 export * from "./settings";
 export * from "./alertHistory";
 export * from "./clientDailyConsumption";
+export * from "./telegramConfig";
+export * from "./telegramUsers";
+export * from "./telegramSessions";

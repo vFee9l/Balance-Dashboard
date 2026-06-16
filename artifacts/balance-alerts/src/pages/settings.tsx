@@ -14,7 +14,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
 import { Separator } from "@/components/ui/separator";
-import { Lock, Unlock, KeyRound, Server, Mail, MessageSquare, Send, Clock, Save, QrCode, ShieldCheck, Copy, CheckCheck } from "lucide-react";
+import { Lock, Unlock, KeyRound, Server, Mail, MessageSquare, Send, Clock, Save, QrCode, ShieldCheck, Copy, CheckCheck, Bot, Eye, EyeOff } from "lucide-react";
 import { useForm } from "react-hook-form";
 import { Form, FormControl, FormDescription, FormField, FormItem, FormLabel } from "@/components/ui/form";
 import { InputOTP, InputOTPGroup, InputOTPSlot } from "@/components/ui/input-otp";
@@ -70,6 +70,145 @@ function TotpSetupCard({ onEnabled }: { onEnabled: () => void }) {
         {updateSettings.isPending ? "ENABLING..." : "I'VE SCANNED IT — ENABLE TOTP"}
       </Button>
     </div>
+  );
+}
+
+function TelegramBotCard() {
+  const { toast } = useToast();
+  const [token, setToken] = useState("");
+  const [showToken, setShowToken] = useState(false);
+  const [status, setStatus] = useState<"idle" | "connecting" | "connected" | "disconnected">("idle");
+  const [botUsername, setBotUsername] = useState<string | null>(null);
+  const [enabled, setEnabled] = useState(false);
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    fetch("/api/settings/telegram/status", { credentials: "include" })
+      .then((r) => r.json())
+      .then((d: { connected: boolean; botUsername: string | null; enabled: boolean }) => {
+        setStatus(d.connected ? "connected" : d.enabled ? "disconnected" : "idle");
+        setBotUsername(d.botUsername);
+        setEnabled(d.enabled);
+      })
+      .catch(() => setStatus("idle"));
+  }, []);
+
+  const handleSave = async () => {
+    if (!token.trim()) {
+      toast({ variant: "destructive", title: "Token required", description: "Enter a bot token from BotFather." });
+      return;
+    }
+    setSaving(true);
+    setStatus("connecting");
+    try {
+      const res = await fetch("/api/settings/telegram", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ bot_token: token.trim() }),
+      });
+      const data = await res.json() as { ok?: boolean; connected?: boolean; botUsername?: string; error?: string };
+      if (!res.ok || !data.ok) {
+        throw new Error(data.error ?? "Failed to save");
+      }
+      setStatus("connected");
+      setBotUsername(data.botUsername ?? null);
+      setEnabled(true);
+      setToken("");
+      toast({ title: "Bot connected", description: `@${data.botUsername ?? "bot"} is now running.` });
+    } catch (err) {
+      setStatus("disconnected");
+      toast({ variant: "destructive", title: "Connection failed", description: err instanceof Error ? err.message : "Unknown error" });
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleToggleEnabled = async (val: boolean) => {
+    if (val) return;
+    setSaving(true);
+    try {
+      await fetch("/api/settings/telegram", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ enabled: false }),
+      });
+      setStatus("disconnected");
+      setEnabled(false);
+      toast({ title: "Bot disabled", description: "The Telegram bot has been stopped." });
+    } catch {
+      toast({ variant: "destructive", title: "Failed to disable bot" });
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const statusEl = () => {
+    if (status === "connecting") return <span className="flex items-center gap-1.5 text-yellow-400 text-sm"><span className="w-2 h-2 rounded-full bg-yellow-400 animate-pulse inline-block" />Connecting…</span>;
+    if (status === "connected") return <span className="flex items-center gap-1.5 text-green-400 text-sm"><span className="w-2 h-2 rounded-full bg-green-400 inline-block" />Connected{botUsername ? ` — @${botUsername}` : ""}</span>;
+    if (status === "disconnected") return <span className="flex items-center gap-1.5 text-red-400 text-sm"><span className="w-2 h-2 rounded-full bg-red-400 inline-block" />Disconnected</span>;
+    return <span className="flex items-center gap-1.5 text-muted-foreground text-sm"><span className="w-2 h-2 rounded-full bg-muted-foreground inline-block" />Not configured</span>;
+  };
+
+  return (
+    <Card className="bg-card/50 backdrop-blur border-border/50">
+      <CardHeader className="pb-4">
+        <div className="flex items-center justify-between">
+          <div>
+            <CardTitle className="text-lg flex items-center">
+              <Bot className="w-5 h-5 mr-2 text-primary" />
+              Telegram Bot
+            </CardTitle>
+            <CardDescription>Interactive bot for balance checks and user registration.</CardDescription>
+          </div>
+          {(status === "connected" || status === "disconnected") && (
+            <Switch
+              checked={status === "connected"}
+              disabled={saving}
+              onCheckedChange={handleToggleEnabled}
+            />
+          )}
+        </div>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <div className="flex items-center gap-2">{statusEl()}</div>
+        <Separator className="border-border/40" />
+        <div className="space-y-2">
+          <label className="text-sm font-medium">Bot Token</label>
+          <div className="flex gap-2">
+            <div className="relative flex-1">
+              <Input
+                type={showToken ? "text" : "password"}
+                placeholder="7412356789:AAF3kLmNoPqRsTuVwXyZ…"
+                value={token}
+                onChange={(e) => setToken(e.target.value)}
+                className="bg-background font-mono text-sm pr-10"
+                onKeyDown={(e) => e.key === "Enter" && void handleSave()}
+              />
+              <button
+                type="button"
+                onClick={() => setShowToken((v) => !v)}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
+              >
+                {showToken ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+              </button>
+            </div>
+            <Button onClick={() => void handleSave()} disabled={saving || !token.trim()} className="shrink-0">
+              <Save className="w-4 h-4 mr-2" />
+              {saving ? "Saving…" : "Save"}
+            </Button>
+          </div>
+          <p className="text-xs text-muted-foreground">
+            Get your token from{" "}
+            <a href="https://t.me/botfather" target="_blank" rel="noopener noreferrer" className="underline hover:text-foreground">
+              @BotFather
+            </a>{" "}
+            — send <code className="font-mono bg-muted px-1 rounded">/newbot</code> to create one.
+          </p>
+        </div>
+      </CardContent>
+    </Card>
   );
 }
 
@@ -614,6 +753,8 @@ export default function SettingsPage() {
               </div>
             </CardContent>
           </Card>
+
+          <TelegramBotCard />
 
           <Card className="bg-card/50 backdrop-blur border-border/50">
             <CardHeader className="pb-4">

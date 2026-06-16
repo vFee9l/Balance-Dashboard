@@ -8,6 +8,7 @@ import Dashboard from "@/pages/dashboard";
 import Contacts from "@/pages/contacts";
 import History from "@/pages/history";
 import SettingsPage from "@/pages/settings";
+import BotUsers from "@/pages/BotUsers";
 import LoginPage from "@/pages/login";
 import NotFound from "@/pages/not-found";
 
@@ -99,6 +100,7 @@ function Router() {
       <Route path="/contacts" component={Contacts} />
       <Route path="/history" component={History} />
       <Route path="/settings" component={SettingsPage} />
+      <Route path="/bot-users" component={BotUsers} />
       <Route component={NotFound} />
     </Switch>
   );

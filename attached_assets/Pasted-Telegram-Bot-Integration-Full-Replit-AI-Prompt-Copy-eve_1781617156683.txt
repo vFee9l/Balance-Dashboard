@@ -1,0 +1,297 @@
+Telegram Bot Integration — Full Replit AI Prompt
+
+
+Copy everything below this line and paste it into Replit AI.
+
+
+
+
+Feature Request: Telegram Bot Integration for Balance Alert
+
+Add a full Telegram Bot integration to the Balance Alert system. The bot token is not stored in environment variables — it is configured by the admin through the application's Settings page and stored in the database.
+
+
+1. Database Changes
+
+Add the following tables to the schema (new migration file):
+
+sql-- Stores the bot configuration (single row, upserted by admin)
+CREATE TABLE telegram_config (
+  id            SERIAL PRIMARY KEY,
+  bot_token     TEXT NOT NULL,
+  bot_username  VARCHAR(100),
+  enabled       BOOLEAN NOT NULL DEFAULT true,
+  updated_at    TIMESTAMPTZ DEFAULT NOW(),
+  updated_by    VARCHAR(100)
+);
+
+-- Stores users who have registered via the Telegram bot
+CREATE TABLE telegram_users (
+  id                 SERIAL PRIMARY KEY,
+  telegram_id        BIGINT UNIQUE NOT NULL,
+  telegram_username  VARCHAR(100),
+  name               VARCHAR(200) NOT NULL,
+  email              VARCHAR(200) NOT NULL,
+  status             VARCHAR(20) NOT NULL DEFAULT 'pending', -- 'pending' | 'approved' | 'rejected'
+  requested_at       TIMESTAMPTZ DEFAULT NOW(),
+  reviewed_at        TIMESTAMPTZ,
+  reviewed_by        VARCHAR(100)
+);
+
+-- Tracks multi-step conversation state per user
+CREATE TABLE telegram_sessions (
+  telegram_id   BIGINT PRIMARY KEY,
+  state         VARCHAR(50) NOT NULL DEFAULT 'idle',
+  context       JSONB,
+  updated_at    TIMESTAMPTZ DEFAULT NOW()
+);
+
+
+2. Settings Page — Bot Token Configuration
+
+In the existing Settings page of the React frontend, add a new section titled "Telegram Bot". It should contain:
+
+
+A password-type text input labeled "Bot Token" (masked by default, with a show/hide toggle).
+A Save button that calls PUT /api/settings/telegram with { bot_token: "..." }.
+After saving, the backend should:
+
+Store the token in the telegram_config table (upsert).
+Stop the currently running bot instance (if any).
+Start a new bot instance using the new token.
+Confirm the bot is valid by calling the Telegram API getMe endpoint and storing the returned bot_username in telegram_config.
+
+
+
+Show a status indicator below the input:
+
+🟢 Connected — @BotUsername (if bot is running and token is valid)
+🔴 Disconnected (if no token saved or token is invalid)
+🟡 Connecting… (while validating)
+
+
+
+A Disable Bot toggle that sets enabled = false in telegram_config and stops the bot process without deleting the token.
+
+
+
+3. Bot Module: artifacts/api-server/src/telegram/bot.ts
+
+
+Install package: pnpm add node-telegram-bot-api and pnpm add -D @types/node-telegram-bot-api
+The bot module must export two functions:
+
+startBot(token: string): Promise<void> — initializes and starts polling
+stopBot(): void — stops the current bot instance cleanly
+
+
+
+On server startup (index.ts), after the database is ready:
+
+Read telegram_config from the database.
+If a token exists and enabled = true, call startBot(token).
+
+
+
+The bot instance must be stored in a module-level variable so it can be stopped and restarted when the token changes via the Settings page.
+
+
+
+4. Bot Commands & Conversation Flows
+
+/start or /register
+
+
+If user already has status = 'approved' → reply:
+
+"You are already registered. Use /help to see available commands."
+
+
+
+
+If user has status = 'pending' → reply:
+
+"⏳ Your registration is still pending admin approval."
+
+
+
+
+Otherwise → start registration flow:
+
+Set session state to awaiting_name.
+Reply: "Welcome! Let's get you registered. What is your full name?"
+On name reply → set state to awaiting_email, store name in context.
+Reply: "Thanks, {name}! What is your email address?"
+On email reply → validate format. If invalid → reply "That doesn't look like a valid email. Please try again." and stay in awaiting_email.
+On valid email → insert row into telegram_users with status = 'pending', clear session.
+Reply: "✅ Registration request submitted! An admin will review your request and you'll be notified here once approved."
+Emit a real-time notification to the web dashboard (use the existing WebSocket or polling mechanism) so a badge appears on the Bot Users tab.
+
+
+
+
+
+/alerts
+
+
+If user is not approved → reply: "❌ You are not authorized. Please /register first."
+If approved → query active balance alerts from the database.
+
+If alerts exist → send a formatted message for each:
+
+
+
+
+
+    🔔 Alert — {Client Name}
+    Balance: {amount}
+    Threshold: {threshold}
+    Triggered: {relative time, e.g. "2 hours ago"}
+
+
+If no active alerts → "✅ No active balance alerts right now."
+
+
+/checkbalance and /checkbalance {client name}
+
+
+If user is not approved → reply: "❌ You are not authorized."
+If no argument provided:
+
+Fetch all clients from the database.
+Reply with an inline keyboard — one button per client showing the client name.
+Set session state to selecting_client.
+When the user taps a button → reply with:
+
+
+
+
+
+    💰 {Client Name}
+    Current Balance: {amount}
+    Last Updated: {timestamp}
+
+
+Clear session state back to idle.
+If called with {client name}:
+
+Search clients (case-insensitive, partial match).
+One match → reply with balance directly.
+Multiple matches → send inline keyboard with matching clients only.
+No match → "No client found matching '{name}'. Try /checkbalance without arguments to see all clients."
+
+
+
+
+
+/help
+
+Reply with:
+
+📋 Available Commands
+
+/register — Request access to the bot
+/alerts — View active balance alerts
+/checkbalance — Check a client's current balance
+/checkbalance {name} — Check a specific client by name
+/help — Show this message
+
+Unrecognized message (state = idle)
+
+Reply: "I didn't understand that. Use /help to see available commands."
+
+
+5. Session State Machine
+
+Use the telegram_sessions table. On every incoming message or callback query:
+
+
+Load the user's current state from telegram_sessions.
+If state is not idle, route to the appropriate handler (do not treat the message as a command).
+Always update updated_at when writing session state.
+
+
+States:
+
+StateMeaningidleNo active flowawaiting_nameBot asked for full nameawaiting_emailBot asked for emailselecting_clientBot sent client list, waiting for inline button
+
+
+6. Web Dashboard — "Bot Users" Tab
+
+Add a Bot Users tab to the main navigation (or inside an Admin/Settings area). It must:
+
+
+Show a table with columns: Name, Email, Telegram Username, Status, Requested At.
+For pending rows, show two action buttons per row: ✅ Approve and ❌ Reject.
+Clicking Approve → PATCH /api/telegram/users/:id/approve
+
+Sets status = 'approved', reviewed_at = now(), reviewed_by = currentUser.
+Bot sends the approved user a Telegram message:
+
+"✅ Your account has been approved! You can now use /alerts and /checkbalance."
+
+
+
+
+
+
+
+Clicking Reject → PATCH /api/telegram/users/:id/reject
+
+Sets status = 'rejected'.
+Bot sends the rejected user a Telegram message:
+
+"❌ Your registration request was rejected. Please contact your administrator."
+
+
+
+
+
+
+
+Show a badge with pending count on the tab label, e.g. "Bot Users (3)".
+Refresh pending count every 30 seconds via GET /api/telegram/users/pending/count.
+
+
+
+7. New API Routes
+
+Create artifacts/api-server/src/routes/telegram.ts with the following routes, all protected by the existing auth middleware:
+
+PUT    /api/settings/telegram                  — save/update bot token, restart bot
+GET    /api/settings/telegram/status           — return { connected, botUsername, enabled }
+GET    /api/telegram/users                     — list all telegram_users
+GET    /api/telegram/users/pending/count       — return { count: N }
+PATCH  /api/telegram/users/:id/approve         — approve a user + send Telegram notification
+PATCH  /api/telegram/users/:id/reject          — reject a user + send Telegram notification
+
+
+8. Error Handling
+
+
+If the bot token is invalid (Telegram returns 401) → store nothing, return a 400 error to the frontend with message: "Invalid bot token. Please check it in BotFather and try again."
+If the bot loses connectivity during polling → log the error and attempt to restart polling every 60 seconds.
+If a Telegram message fails to send (e.g. user blocked the bot) → log the error silently, do not crash.
+
+
+
+9. How to Get a Bot Token (Admin Setup Instructions)
+
+Include the following instructions in a tooltip or help text next to the Bot Token field in the Settings page:
+
+
+How to get your Bot Token:
+
+
+Open Telegram and search for @BotFather.
+Send /newbot and follow the prompts to choose a name and username.
+BotFather will give you a token like: 7412356789:AAF3kLmNoPqRsTuVwXyZ...
+Paste that token here and click Save.
+
+
+
+
+
+10. Summary of Files to Create or Modify
+
+FileActiondb/migrations/XXXX_telegram.sqlCreate — new tablesartifacts/api-server/src/telegram/bot.tsCreate — bot moduleartifacts/api-server/src/routes/telegram.tsCreate — API routesartifacts/api-server/src/index.tsModify — start bot on startupartifacts/balance-alerts/src/pages/Settings.tsxModify — add Bot Token sectionartifacts/balance-alerts/src/pages/BotUsers.tsxCreate — approval panelartifacts/balance-alerts/src/App.tsxModify — add Bot Users tab/route

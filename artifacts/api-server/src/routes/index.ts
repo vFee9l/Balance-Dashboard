@@ -5,6 +5,7 @@ import settingsRouter from "./settings";
 import grafanaRouter from "./grafana";
 import alertHistoryRouter from "./alertHistory";
 import authRouter from "./auth";
+import telegramRouter from "./telegram";
 
 const router: IRouter = Router();
 
@@ -14,5 +15,6 @@ router.use(contactsRouter);
 router.use(settingsRouter);
 router.use(grafanaRouter);
 router.use(alertHistoryRouter);
+router.use(telegramRouter);
 
 export default router;

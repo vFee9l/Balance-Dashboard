@@ -1,18 +1,35 @@
 import { Link, useLocation } from "wouter";
-import { LayoutDashboard, Users, History, Settings, Zap, LogOut } from "lucide-react";
+import { LayoutDashboard, Users, History, Settings, Zap, LogOut, Bot } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { useQueryClient } from "@tanstack/react-query";
+import { useQueryClient, useQuery } from "@tanstack/react-query";
 
-const navigation = [
-  { name: "Dashboard", href: "/", icon: LayoutDashboard },
-  { name: "Contacts", href: "/contacts", icon: Users },
-  { name: "History", href: "/history", icon: History },
-  { name: "Settings", href: "/settings", icon: Settings },
-];
+function usePendingBotCount() {
+  const { data } = useQuery<{ count: number }>({
+    queryKey: ["telegram", "pending-count"],
+    queryFn: async () => {
+      const res = await fetch("/api/telegram/users/pending/count", { credentials: "include" });
+      if (!res.ok) return { count: 0 };
+      return res.json() as Promise<{ count: number }>;
+    },
+    refetchInterval: 30_000,
+    staleTime: 25_000,
+    retry: false,
+  });
+  return data?.count ?? 0;
+}
 
 export function Sidebar() {
   const [location] = useLocation();
   const qc = useQueryClient();
+  const pendingBotCount = usePendingBotCount();
+
+  const navigation = [
+    { name: "Dashboard", href: "/", icon: LayoutDashboard, badge: 0 },
+    { name: "Contacts", href: "/contacts", icon: Users, badge: 0 },
+    { name: "History", href: "/history", icon: History, badge: 0 },
+    { name: "Bot Users", href: "/bot-users", icon: Bot, badge: pendingBotCount },
+    { name: "Settings", href: "/settings", icon: Settings, badge: 0 },
+  ];
 
   const handleLogout = async () => {
     await fetch("/api/auth/logout", { method: "POST", credentials: "include" });
@@ -46,7 +63,12 @@ export function Sidebar() {
                     )}
                     aria-hidden="true"
                   />
-                  {item.name}
+                  <span className="flex-1">{item.name}</span>
+                  {item.badge > 0 && (
+                    <span className="ml-auto inline-flex items-center justify-center w-5 h-5 text-[10px] font-bold rounded-full bg-yellow-500/20 text-yellow-400 border border-yellow-500/30">
+                      {item.badge}
+                    </span>
+                  )}
                 </div>
               </Link>
             );

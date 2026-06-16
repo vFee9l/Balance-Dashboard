@@ -702,6 +702,18 @@ router.get("/grafana/balances", async (req, res): Promise<void> => {
       .catch((err: unknown) => logger.warn({ err }, "Failed to upsert daily consumption snapshot"));
   }
 
+  // Populate the in-process balance cache for the Telegram bot /checkbalance command
+  import("../lib/balanceCache.js").then(({ updateBalanceCache }) => {
+    updateBalanceCache(
+      result.map((r) => ({
+        metric: r.metric,
+        remainingBalance: r.remainingBalance,
+        daysRemaining: r.daysRemaining,
+        severity: r.severity,
+      }))
+    );
+  }).catch(() => { /* non-fatal */ });
+
   res.json(result);
 });
 

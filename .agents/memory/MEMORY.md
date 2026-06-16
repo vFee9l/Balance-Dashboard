@@ -1,0 +1,1 @@
+- [Telegram Bot integration](telegram-bot.md) — interactive bot uses separate `telegram_config` table; broadcast channel uses `settings.telegramBotToken`
