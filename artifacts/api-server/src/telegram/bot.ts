@@ -292,18 +292,19 @@ async function sendClientBalance(instance: TelegramBot, chatId: number, telegram
   const updatedStr = lastUpdated ? lastUpdated.toLocaleString("en-SA", { timeZone: "Asia/Riyadh" }) : "Unknown";
   const statusEmoji = { ok: "🟢", warning: "🟡", critical: "🔴", emergency: "🚨" }[entry.severity] ?? "⚪";
 
+  const days = entry.daysRemaining >= 0 ? entry.daysRemaining.toFixed(1) : "—";
   await instance.sendMessage(
     chatId,
-    `${statusEmoji} *${esc(entry.metric)}*\nBalance: ${fmtBalance(entry.remainingBalance)}\nEst\\. Days: ${entry.daysRemaining >= 0 ? entry.daysRemaining.toFixed(1) : "—"}\nStatus: ${entry.severity.toUpperCase()}\nLast updated: ${esc(updatedStr)}`,
-    { parse_mode: "MarkdownV2" }
+    `${statusEmoji} <b>${h(entry.metric)}</b>\nBalance: ${h(fmtBalance(entry.remainingBalance))}\nEst. Days: ${h(days)}\nStatus: ${h(entry.severity.toUpperCase())}\nLast updated: ${h(updatedStr)}`,
+    { parse_mode: "HTML" }
   );
 }
 
 async function handleHelp(instance: TelegramBot, chatId: number) {
   await instance.sendMessage(
     chatId,
-    "📋 *Available Commands*\n\n/register — Request access to the bot\n/alerts — View recent balance alerts\n/checkbalance — Check a client's current balance\n/checkbalance \\{name\\} — Check a specific client by name\n/help — Show this message",
-    { parse_mode: "MarkdownV2" }
+    "📋 <b>Available Commands</b>\n\n/register — Request access to the bot\n/alerts — View recent balance alerts\n/checkbalance — Check a client's current balance\n/checkbalance {name} — Check a specific client by name\n/help — Show this message",
+    { parse_mode: "HTML" }
   );
 }
 
@@ -325,4 +326,8 @@ function fmtBalance(n: number): string {
 
 function esc(text: string): string {
   return text.replace(/[_*[\]()~`>#+\-=|{}.!]/g, "\\$&");
+}
+
+function h(text: string): string {
+  return text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 }
