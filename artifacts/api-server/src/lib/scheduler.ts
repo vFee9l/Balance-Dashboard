@@ -1,8 +1,34 @@
 import { db, settingsTable } from "@workspace/db";
 import { logger } from "./logger";
-import { runAlertChecks } from "../routes/grafana";
+import { runAlertChecks, refreshBalanceCache } from "../routes/grafana";
 
 let schedulerTimer: ReturnType<typeof setTimeout> | null = null;
+let balanceCacheTimer: ReturnType<typeof setInterval> | null = null;
+
+const CACHE_INTERVAL_MS = 60 * 60 * 1000; // 1 hour
+
+async function runBalanceCacheRefresh() {
+  try {
+    await refreshBalanceCache();
+    logger.info("Balance cache refreshed");
+  } catch (err) {
+    logger.warn({ err }, "Balance cache refresh failed");
+  }
+}
+
+export function startBalanceCacheRefresher() {
+  // Run immediately on startup, then every hour
+  void runBalanceCacheRefresh();
+  balanceCacheTimer = setInterval(() => void runBalanceCacheRefresh(), CACHE_INTERVAL_MS);
+  logger.info({ intervalMs: CACHE_INTERVAL_MS }, "Balance cache auto-refresh started");
+}
+
+export function stopBalanceCacheRefresher() {
+  if (balanceCacheTimer) {
+    clearInterval(balanceCacheTimer);
+    balanceCacheTimer = null;
+  }
+}
 
 function msUntilNextRun(hour: number): number {
   const now = new Date();

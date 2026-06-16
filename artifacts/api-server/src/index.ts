@@ -1,6 +1,6 @@
 import app from "./app";
 import { logger } from "./lib/logger";
-import { startScheduler } from "./lib/scheduler";
+import { startScheduler, startBalanceCacheRefresher } from "./lib/scheduler";
 import { db } from "@workspace/db";
 import { telegramConfigTable } from "@workspace/db";
 import { eq } from "drizzle-orm";
@@ -28,6 +28,7 @@ app.listen(port, async (err) => {
 
   logger.info({ port }, "Server listening");
   startScheduler();
+  startBalanceCacheRefresher();
 
   try {
     const [cfg] = await db

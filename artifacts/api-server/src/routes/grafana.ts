@@ -1100,4 +1100,25 @@ router.post("/alerts/trigger", async (req, res): Promise<void> => {
   res.json(result);
 });
 
+export async function refreshBalanceCache(): Promise<void> {
+  const rows = await db.select().from(settingsTable).limit(1);
+  const settings = rows[0];
+  const thresholdStaff = settings?.thresholdStaff ?? 20;
+  const thresholdManager = settings?.thresholdManager ?? 15;
+  const thresholdMd = settings?.thresholdMd ?? 5;
+
+  const rawBalances = await fetchGrafanaBalances();
+
+  const { updateBalanceCache } = await import("../lib/balanceCache.js");
+  updateBalanceCache(
+    rawBalances.map((b) => {
+      const effectiveDaily = b.dailyConsumption > 0 ? b.dailyConsumption : b.recentDailyConsumption;
+      const rawDays = effectiveDaily > 0 ? b.remainingBalance / effectiveDaily : null;
+      const daysRemaining = rawDays === null ? -1 : Math.max(0, Math.round(rawDays * 10) / 10);
+      const severity = rawDays === null ? "ok" : computeSeverity(daysRemaining, thresholdStaff, thresholdManager, thresholdMd);
+      return { metric: b.metric, remainingBalance: b.remainingBalance, daysRemaining, severity };
+    })
+  );
+}
+
 export default router;
