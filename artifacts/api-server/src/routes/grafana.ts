@@ -1097,6 +1097,7 @@ export async function runAlertChecks(): Promise<{
         metric: b.metric, daysRemaining, severity, channel: "email",
         recipientCount: ok ? toEmails.length : 0, success: ok,
         errorMessage: ok ? null : "SMTP send failed",
+        recipients: JSON.stringify({ to: toEmails, cc: ccEmails }),
       });
     }
 
@@ -1117,6 +1118,7 @@ export async function runAlertChecks(): Promise<{
         metric: b.metric, daysRemaining, severity, channel: "sms",
         recipientCount: smsSuccess, success: smsSuccess > 0,
         errorMessage: smsErrors.length > 0 ? smsErrors.join(" | ") : null,
+        recipients: JSON.stringify({ numbers: smsNumbers }),
       });
     }
 
@@ -1128,6 +1130,7 @@ export async function runAlertChecks(): Promise<{
         metric: b.metric, daysRemaining, severity, channel: "telegram",
         recipientCount: ok ? 1 : 0, success: ok,
         errorMessage: ok ? null : "Telegram send failed",
+        recipients: JSON.stringify({ chatId: settings?.telegramChatId ?? "broadcast" }),
       });
     }
 

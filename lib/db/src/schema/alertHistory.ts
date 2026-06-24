@@ -12,6 +12,7 @@ export const alertHistoryTable = pgTable("alert_history", {
   sentAt: timestamp("sent_at", { withTimezone: true }).notNull().defaultNow(),
   success: boolean("success").notNull().default(true),
   errorMessage: text("error_message"),
+  recipients: text("recipients"),
 });
 
 export const insertAlertHistorySchema = createInsertSchema(alertHistoryTable).omit({ id: true, sentAt: true });

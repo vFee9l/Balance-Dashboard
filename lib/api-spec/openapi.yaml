@@ -718,6 +718,8 @@ components:
           type: boolean
         errorMessage:
           type: ["string", "null"]
+        recipients:
+          type: ["string", "null"]
 
     AlertSummary:
       type: object

@@ -231,6 +231,8 @@ export interface AlertHistoryEntry {
   success: boolean;
   /** @nullable */
   errorMessage?: string | null;
+  /** @nullable */
+  recipients?: string | null;
 }
 
 export interface AlertSummary {

@@ -333,7 +333,8 @@ export const ListAlertHistoryResponseItem = zod.object({
   "recipientCount": zod.number(),
   "sentAt": zod.string(),
   "success": zod.boolean(),
-  "errorMessage": zod.string().nullish()
+  "errorMessage": zod.string().nullish(),
+  "recipients": zod.string().nullish()
 })
 export const ListAlertHistoryResponse = zod.array(ListAlertHistoryResponseItem)
 
