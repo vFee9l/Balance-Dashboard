@@ -28,32 +28,35 @@ cd "$APP_DIR"
 
 # --- Pull latest code ---
 echo ""
-echo "[1/5] Pulling latest code from git..."
+echo "[1/6] Pulling latest code from git..."
 git pull --ff-only
 
 # --- Install / update dependencies ---
 echo ""
-echo "[2/5] Installing dependencies..."
+echo "[2/6] Installing dependencies..."
 pnpm install --frozen-lockfile
+
+# --- Apply database migrations ---
+# This script is idempotent — safe to run on every update.
+# It handles column renames and new tables that drizzle-kit push cannot
+# apply automatically in a non-interactive (non-TTY) environment.
+echo ""
+echo "[3/6] Applying database migrations..."
+pnpm --filter @workspace/scripts run migrate
 
 # --- Build frontend ---
 echo ""
-echo "[3/5] Building React frontend..."
+echo "[4/6] Building React frontend..."
 pnpm --filter @workspace/balance-alerts run build
 
 # --- Build API server ---
 echo ""
-echo "[4/5] Building API server..."
+echo "[5/6] Building API server..."
 pnpm --filter @workspace/api-server run build
-
-# --- Push database schema ---
-echo ""
-echo "[5/5] Applying database schema changes..."
-pnpm --filter @workspace/db run push
 
 # --- Restart pm2 process ---
 echo ""
-echo "Restarting pm2 process '$APP_NAME'..."
+echo "[6/6] Restarting pm2 process '$APP_NAME'..."
 if pm2 describe "$APP_NAME" > /dev/null 2>&1; then
   pm2 reload ecosystem.config.cjs --update-env
 else

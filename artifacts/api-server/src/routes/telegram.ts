@@ -15,13 +15,20 @@ const router = Router();
 
 // ─── Helper: load or create config row ───────────────────────────────────────
 async function getOrCreateConfig() {
-  const [cfg] = await db.select().from(telegramConfigTable).where(eq(telegramConfigTable.id, 1));
-  if (cfg) return cfg;
-  const [created] = await db
+  // Always select first — avoids the duplicate-key error on self-hosted installs
+  // where the table already has a row from a previous run.
+  const rows = await db.select().from(telegramConfigTable).limit(1);
+  if (rows.length > 0) return rows[0]!;
+
+  // Table is empty — insert seed row using upsert so concurrent requests don't race.
+  await db
     .insert(telegramConfigTable)
     .values({ id: 1 })
-    .returning();
-  return created;
+    .onConflictDoNothing();
+
+  // Re-select after upsert (handles the case where another request won the race).
+  const [row] = await db.select().from(telegramConfigTable).limit(1);
+  return row!;
 }
 
 // ─── Serialize user dates ─────────────────────────────────────────────────────

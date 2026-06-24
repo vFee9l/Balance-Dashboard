@@ -224,7 +224,7 @@ function UsersTab({ toast }: { toast: ReturnType<typeof useToast>["toast"] }) {
                     </TableCell>
                     <TableCell>
                       <Select
-                        value={user.role}
+                        value={user.role || "viewer"}
                         onValueChange={(role) => void act(user.id, "role", { role })}
                         disabled={key === `${user.id}:role`}
                       >
