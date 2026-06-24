@@ -30,6 +30,23 @@ const migrations: Array<{ label: string; sql: string }> = [
     sql: `ALTER TABLE IF EXISTS telegram_config ADD COLUMN IF NOT EXISTS whitelist_enabled boolean NOT NULL DEFAULT false`,
   },
   {
+    label: "telegram_config: fix whitelist_enabled type (non-boolean → boolean)",
+    sql: `
+      DO $$ BEGIN
+        IF EXISTS (
+          SELECT 1 FROM information_schema.columns
+          WHERE table_name = 'telegram_config'
+            AND column_name = 'whitelist_enabled'
+            AND data_type NOT IN ('boolean')
+        ) THEN
+          ALTER TABLE telegram_config
+            ALTER COLUMN whitelist_enabled TYPE boolean
+            USING whitelist_enabled::boolean;
+        END IF;
+      END $$
+    `,
+  },
+  {
     label: "telegram_config: add require_approval",
     sql: `ALTER TABLE IF EXISTS telegram_config ADD COLUMN IF NOT EXISTS require_approval boolean NOT NULL DEFAULT true`,
   },
