@@ -147,7 +147,16 @@ export const GetSettingsResponse = zod.object({
   "thresholdMd": zod.number(),
   "totpEnabled": zod.boolean(),
   "totpSecret": zod.string().nullish(),
-  "googleSheetUrl": zod.string().nullish()
+  "googleSheetUrl": zod.string().nullish(),
+  "warningSmsCols": zod.string().nullish(),
+  "warningEmailToCols": zod.string().nullish(),
+  "warningEmailCcCols": zod.string().nullish(),
+  "criticalSmsCols": zod.string().nullish(),
+  "criticalEmailToCols": zod.string().nullish(),
+  "criticalEmailCcCols": zod.string().nullish(),
+  "emergencySmsCols": zod.string().nullish(),
+  "emergencyEmailToCols": zod.string().nullish(),
+  "emergencyEmailCcCols": zod.string().nullish()
 })
 
 
@@ -179,7 +188,16 @@ export const UpdateSettingsBody = zod.object({
   "thresholdMd": zod.number().optional(),
   "totpEnabled": zod.boolean().optional(),
   "totpSecret": zod.string().optional(),
-  "googleSheetUrl": zod.string().optional()
+  "googleSheetUrl": zod.string().optional(),
+  "warningSmsCols": zod.string().optional(),
+  "warningEmailToCols": zod.string().optional(),
+  "warningEmailCcCols": zod.string().optional(),
+  "criticalSmsCols": zod.string().optional(),
+  "criticalEmailToCols": zod.string().optional(),
+  "criticalEmailCcCols": zod.string().optional(),
+  "emergencySmsCols": zod.string().optional(),
+  "emergencyEmailToCols": zod.string().optional(),
+  "emergencyEmailCcCols": zod.string().optional()
 })
 
 export const UpdateSettingsResponse = zod.object({
@@ -207,7 +225,16 @@ export const UpdateSettingsResponse = zod.object({
   "thresholdMd": zod.number(),
   "totpEnabled": zod.boolean(),
   "totpSecret": zod.string().nullish(),
-  "googleSheetUrl": zod.string().nullish()
+  "googleSheetUrl": zod.string().nullish(),
+  "warningSmsCols": zod.string().nullish(),
+  "warningEmailToCols": zod.string().nullish(),
+  "warningEmailCcCols": zod.string().nullish(),
+  "criticalSmsCols": zod.string().nullish(),
+  "criticalEmailToCols": zod.string().nullish(),
+  "criticalEmailCcCols": zod.string().nullish(),
+  "emergencySmsCols": zod.string().nullish(),
+  "emergencyEmailToCols": zod.string().nullish(),
+  "emergencyEmailCcCols": zod.string().nullish()
 })
 
 

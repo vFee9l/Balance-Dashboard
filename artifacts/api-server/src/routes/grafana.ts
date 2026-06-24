@@ -844,29 +844,12 @@ async function sendTelegramNotification(
 }
 
 // ─── Google Sheet contact row ──────────────────────────────────────────────────
-// Per-client contact row from the Google Sheet.
-// Column layout (0-based CSV index):
-//   C=2  Account Manager/Director name
-//   D=3  CCS name
-//   E=4  Finance ID  ← key for matching Grafana data
-//   F=5  AM Mobile No  (comma-separated for multiple)
-//   G=6  AM Email      (comma-separated)
-//   H=7  CSS Mobile No (comma-separated)
-//   I=8  CSS Email     (comma-separated)
-//   J=9  Manager Mobile No (comma-separated)
-//   K=10 Manager Email     (comma-separated)
-//   L=11 MD Mobile No      (comma-separated)
-//   M=12 MD Email          (comma-separated)
+// Per-client row from the Google Sheet, keyed by Finance ID (column E, index 4).
+// All CSV columns are kept as rawCols so the alert logic can read any column
+// by its configured letter(s) without hardcoding the field mapping here.
 interface SheetRow {
   financeId: string;
-  amMobiles: string[];
-  amEmails: string[];
-  cssMobiles: string[];
-  cssEmails: string[];
-  managerMobiles: string[];
-  managerEmails: string[];
-  mdMobiles: string[];
-  mdEmails: string[];
+  rawCols: string[]; // full parsed CSV column array for this row
 }
 
 // Parse a CSV line, respecting double-quoted fields that may contain commas.
@@ -889,6 +872,24 @@ function splitCell(cell: string | undefined): string[] {
   return (cell ?? "").split(",").map((s) => s.trim()).filter(Boolean);
 }
 
+// Extract values from sheet row columns specified by letter(s) like "F,H".
+// A=0, B=1, …, Z=25.  Multiple values within one cell are comma-separated.
+function getColValues(rawCols: string[], colConfig: string | null | undefined): string[] {
+  if (!colConfig) return [];
+  const result: string[] = [];
+  for (const letter of colConfig.split(",").map((s) => s.trim().toUpperCase()).filter(Boolean)) {
+    if (!/^[A-Z]+$/.test(letter)) continue;
+    // Multi-letter support: A=1, Z=26, AA=27, …  → 0-based index
+    let idx = 0;
+    for (let i = 0; i < letter.length; i++) {
+      idx = idx * 26 + (letter.charCodeAt(i) - 64);
+    }
+    idx -= 1; // convert to 0-based
+    result.push(...splitCell(rawCols[idx]));
+  }
+  return result;
+}
+
 // Fetch the Google Sheet as CSV and return a Map keyed by Finance ID.
 // The sheet must be shared with "Anyone with the link can view".
 async function fetchSheetRows(sheetUrl: string): Promise<Map<string, SheetRow>> {
@@ -907,19 +908,9 @@ async function fetchSheetRows(sheetUrl: string): Promise<Map<string, SheetRow>> 
     // Row 0 is the header — skip it and start at row 1
     for (let i = 1; i < lines.length; i++) {
       const cols = parseCsvLine(lines[i]);
-      const financeId = (cols[4] ?? "").trim(); // column E (index 4)
+      const financeId = (cols[4] ?? "").trim(); // column E (index 4) is always the Finance ID key
       if (!financeId) continue;
-      map.set(financeId, {
-        financeId,
-        amMobiles:      splitCell(cols[5]),   // F
-        amEmails:       splitCell(cols[6]),   // G
-        cssMobiles:     splitCell(cols[7]),   // H
-        cssEmails:      splitCell(cols[8]),   // I
-        managerMobiles: splitCell(cols[9]),   // J
-        managerEmails:  splitCell(cols[10]),  // K
-        mdMobiles:      splitCell(cols[11]),  // L
-        mdEmails:       splitCell(cols[12]),  // M
-      });
+      map.set(financeId, { financeId, rawCols: cols });
     }
     logger.info({ rowCount: map.size }, "Google Sheet contacts loaded");
   } catch (err) {
@@ -1029,23 +1020,21 @@ export async function runAlertChecks(): Promise<{
     const row = financeId ? sheetRows.get(String(financeId)) : undefined;
 
     if (row) {
-      const staffEmails = [...row.amEmails, ...row.cssEmails];
-      const staffMobiles = [...row.amMobiles, ...row.cssMobiles];
-      if (severity === "warning") {
-        return { toEmails: staffEmails, ccEmails: row.managerEmails, smsNumbers: staffMobiles };
-      } else if (severity === "critical") {
-        return {
-          toEmails: row.managerEmails,
-          ccEmails: [...staffEmails, ...row.mdEmails],
-          smsNumbers: [...staffMobiles, ...row.managerMobiles],
-        };
-      } else { // emergency
-        return {
-          toEmails: row.mdEmails,
-          ccEmails: [...row.managerEmails, ...staffEmails],
-          smsNumbers: [...row.mdMobiles, ...row.managerMobiles, ...staffMobiles],
-        };
-      }
+      // Use the configured column letters for this severity; fall back to sensible defaults
+      const smsCols = severity === "warning"  ? (settings?.warningSmsCols   ?? "F,H")
+                    : severity === "critical"  ? (settings?.criticalSmsCols  ?? "F,H,J")
+                    :                            (settings?.emergencySmsCols ?? "F,H,J,L");
+      const toCols  = severity === "warning"  ? (settings?.warningEmailToCols   ?? "G,I")
+                    : severity === "critical"  ? (settings?.criticalEmailToCols  ?? "K")
+                    :                            (settings?.emergencyEmailToCols ?? "M");
+      const ccCols  = severity === "warning"  ? (settings?.warningEmailCcCols   ?? "K")
+                    : severity === "critical"  ? (settings?.criticalEmailCcCols  ?? "G,I,M")
+                    :                            (settings?.emergencyEmailCcCols ?? "G,I,K");
+      return {
+        smsNumbers: getColValues(row.rawCols, smsCols),
+        toEmails:   getColValues(row.rawCols, toCols),
+        ccEmails:   getColValues(row.rawCols, ccCols),
+      };
     }
 
     // DB fallback — same routing rules applied to global contacts

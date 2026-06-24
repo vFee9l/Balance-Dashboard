@@ -93,6 +93,24 @@ export interface Settings {
   totpSecret?: string | null;
   /** @nullable */
   googleSheetUrl?: string | null;
+  /** @nullable */
+  warningSmsCols?: string | null;
+  /** @nullable */
+  warningEmailToCols?: string | null;
+  /** @nullable */
+  warningEmailCcCols?: string | null;
+  /** @nullable */
+  criticalSmsCols?: string | null;
+  /** @nullable */
+  criticalEmailToCols?: string | null;
+  /** @nullable */
+  criticalEmailCcCols?: string | null;
+  /** @nullable */
+  emergencySmsCols?: string | null;
+  /** @nullable */
+  emergencyEmailToCols?: string | null;
+  /** @nullable */
+  emergencyEmailCcCols?: string | null;
 }
 
 export interface SettingsUpdate {
@@ -121,6 +139,15 @@ export interface SettingsUpdate {
   totpEnabled?: boolean;
   totpSecret?: string;
   googleSheetUrl?: string;
+  warningSmsCols?: string;
+  warningEmailToCols?: string;
+  warningEmailCcCols?: string;
+  criticalSmsCols?: string;
+  criticalEmailToCols?: string;
+  criticalEmailCcCols?: string;
+  emergencySmsCols?: string;
+  emergencyEmailToCols?: string;
+  emergencyEmailCcCols?: string;
 }
 
 export interface OtpInput {

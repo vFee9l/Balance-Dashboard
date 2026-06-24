@@ -484,6 +484,24 @@ components:
           type: ["string", "null"]
         googleSheetUrl:
           type: ["string", "null"]
+        warningSmsCols:
+          type: ["string", "null"]
+        warningEmailToCols:
+          type: ["string", "null"]
+        warningEmailCcCols:
+          type: ["string", "null"]
+        criticalSmsCols:
+          type: ["string", "null"]
+        criticalEmailToCols:
+          type: ["string", "null"]
+        criticalEmailCcCols:
+          type: ["string", "null"]
+        emergencySmsCols:
+          type: ["string", "null"]
+        emergencyEmailToCols:
+          type: ["string", "null"]
+        emergencyEmailCcCols:
+          type: ["string", "null"]
 
     SettingsUpdate:
       type: object
@@ -537,6 +555,24 @@ components:
         totpSecret:
           type: string
         googleSheetUrl:
+          type: string
+        warningSmsCols:
+          type: string
+        warningEmailToCols:
+          type: string
+        warningEmailCcCols:
+          type: string
+        criticalSmsCols:
+          type: string
+        criticalEmailToCols:
+          type: string
+        criticalEmailCcCols:
+          type: string
+        emergencySmsCols:
+          type: string
+        emergencyEmailToCols:
+          type: string
+        emergencyEmailCcCols:
           type: string
 
     OtpInput:

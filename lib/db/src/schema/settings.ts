@@ -29,6 +29,15 @@ export const settingsTable = pgTable("settings", {
   totpSecret: text("totp_secret"),
   totpEnabled: boolean("totp_enabled").notNull().default(false),
   googleSheetUrl: text("google_sheet_url"),
+  warningSmsCols: text("warning_sms_cols").default("F,H"),
+  warningEmailToCols: text("warning_email_to_cols").default("G,I"),
+  warningEmailCcCols: text("warning_email_cc_cols").default("K"),
+  criticalSmsCols: text("critical_sms_cols").default("F,H,J"),
+  criticalEmailToCols: text("critical_email_to_cols").default("K"),
+  criticalEmailCcCols: text("critical_email_cc_cols").default("G,I,M"),
+  emergencySmsCols: text("emergency_sms_cols").default("F,H,J,L"),
+  emergencyEmailToCols: text("emergency_email_to_cols").default("M"),
+  emergencyEmailCcCols: text("emergency_email_cc_cols").default("G,I,K"),
 });
 
 export const insertSettingsSchema = createInsertSchema(settingsTable).omit({ id: true });

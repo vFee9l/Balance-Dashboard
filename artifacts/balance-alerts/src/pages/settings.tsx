@@ -14,7 +14,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
 import { Separator } from "@/components/ui/separator";
-import { Lock, Unlock, KeyRound, Server, Mail, MessageSquare, Send, Clock, Save, QrCode, ShieldCheck, Copy, CheckCheck, Bot, Eye, EyeOff } from "lucide-react";
+import { Lock, Unlock, KeyRound, Server, Mail, MessageSquare, Send, Clock, Save, QrCode, ShieldCheck, Copy, CheckCheck, Bot, Eye, EyeOff, Table2 } from "lucide-react";
 import { useForm } from "react-hook-form";
 import { Form, FormControl, FormDescription, FormField, FormItem, FormLabel } from "@/components/ui/form";
 import { InputOTP, InputOTPGroup, InputOTPSlot } from "@/components/ui/input-otp";
@@ -315,6 +315,15 @@ export default function SettingsPage() {
       thresholdStaff: 20,
       thresholdManager: 15,
       thresholdMd: 5,
+      warningSmsCols: "F,H",
+      warningEmailToCols: "G,I",
+      warningEmailCcCols: "K",
+      criticalSmsCols: "F,H,J",
+      criticalEmailToCols: "K",
+      criticalEmailCcCols: "G,I,M",
+      emergencySmsCols: "F,H,J,L",
+      emergencyEmailToCols: "M",
+      emergencyEmailCcCols: "G,I,K",
     },
   });
   const initializedRef = useRef(false);
@@ -465,9 +474,99 @@ export default function SettingsPage() {
                 <FormItem>
                   <FormLabel>Contacts Google Sheet URL</FormLabel>
                   <FormControl><Input className="bg-background font-mono text-sm" {...field} value={field.value || ""} placeholder="https://docs.google.com/spreadsheets/d/..." /></FormControl>
-                  <FormDescription>Public Google Sheet with client contacts (CCS &amp; Account Manager columns). Used to determine email recipients per alert severity.</FormDescription>
+                  <FormDescription>Public Google Sheet with client contacts. Must be shared with "Anyone with the link can view".</FormDescription>
                 </FormItem>
               )} />
+            </CardContent>
+          </Card>
+
+          <Card className="bg-card/50 backdrop-blur border-border/50">
+            <CardHeader className="pb-4">
+              <CardTitle className="text-lg flex items-center">
+                <Table2 className="w-5 h-5 mr-2 text-primary" />
+                Sheet Column Routing
+              </CardTitle>
+              <CardDescription>
+                Choose which Google Sheet columns feed each channel per severity. Enter column letter(s) separated by commas — e.g. <code className="text-xs bg-secondary px-1 rounded">F,H</code>.
+                Multiple phone numbers or emails in one cell should also be comma-separated.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-6">
+              {/* Warning */}
+              <div className="rounded-lg border border-yellow-500/25 bg-yellow-500/5 p-4 space-y-3">
+                <p className="text-xs font-bold uppercase tracking-wider text-yellow-500">⚠ Warning</p>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  <FormField control={form.control} name="warningSmsCols" render={({ field }) => (
+                    <FormItem>
+                      <FormLabel className="text-xs text-muted-foreground">Send SMS to (cols)</FormLabel>
+                      <FormControl><Input className="bg-background font-mono text-sm" placeholder="F,H" {...field} value={field.value || ""} /></FormControl>
+                    </FormItem>
+                  )} />
+                  <FormField control={form.control} name="warningEmailToCols" render={({ field }) => (
+                    <FormItem>
+                      <FormLabel className="text-xs text-muted-foreground">Email To (cols)</FormLabel>
+                      <FormControl><Input className="bg-background font-mono text-sm" placeholder="G,I" {...field} value={field.value || ""} /></FormControl>
+                    </FormItem>
+                  )} />
+                  <FormField control={form.control} name="warningEmailCcCols" render={({ field }) => (
+                    <FormItem>
+                      <FormLabel className="text-xs text-muted-foreground">Email CC (cols)</FormLabel>
+                      <FormControl><Input className="bg-background font-mono text-sm" placeholder="K" {...field} value={field.value || ""} /></FormControl>
+                    </FormItem>
+                  )} />
+                </div>
+              </div>
+              {/* Critical */}
+              <div className="rounded-lg border border-red-500/25 bg-red-500/5 p-4 space-y-3">
+                <p className="text-xs font-bold uppercase tracking-wider text-red-400">🔴 Critical</p>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  <FormField control={form.control} name="criticalSmsCols" render={({ field }) => (
+                    <FormItem>
+                      <FormLabel className="text-xs text-muted-foreground">Send SMS to (cols)</FormLabel>
+                      <FormControl><Input className="bg-background font-mono text-sm" placeholder="F,H,J" {...field} value={field.value || ""} /></FormControl>
+                    </FormItem>
+                  )} />
+                  <FormField control={form.control} name="criticalEmailToCols" render={({ field }) => (
+                    <FormItem>
+                      <FormLabel className="text-xs text-muted-foreground">Email To (cols)</FormLabel>
+                      <FormControl><Input className="bg-background font-mono text-sm" placeholder="K" {...field} value={field.value || ""} /></FormControl>
+                    </FormItem>
+                  )} />
+                  <FormField control={form.control} name="criticalEmailCcCols" render={({ field }) => (
+                    <FormItem>
+                      <FormLabel className="text-xs text-muted-foreground">Email CC (cols)</FormLabel>
+                      <FormControl><Input className="bg-background font-mono text-sm" placeholder="G,I,M" {...field} value={field.value || ""} /></FormControl>
+                    </FormItem>
+                  )} />
+                </div>
+              </div>
+              {/* Emergency */}
+              <div className="rounded-lg border border-red-900/40 bg-red-900/10 p-4 space-y-3">
+                <p className="text-xs font-bold uppercase tracking-wider text-red-300">🚨 Emergency</p>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  <FormField control={form.control} name="emergencySmsCols" render={({ field }) => (
+                    <FormItem>
+                      <FormLabel className="text-xs text-muted-foreground">Send SMS to (cols)</FormLabel>
+                      <FormControl><Input className="bg-background font-mono text-sm" placeholder="F,H,J,L" {...field} value={field.value || ""} /></FormControl>
+                    </FormItem>
+                  )} />
+                  <FormField control={form.control} name="emergencyEmailToCols" render={({ field }) => (
+                    <FormItem>
+                      <FormLabel className="text-xs text-muted-foreground">Email To (cols)</FormLabel>
+                      <FormControl><Input className="bg-background font-mono text-sm" placeholder="M" {...field} value={field.value || ""} /></FormControl>
+                    </FormItem>
+                  )} />
+                  <FormField control={form.control} name="emergencyEmailCcCols" render={({ field }) => (
+                    <FormItem>
+                      <FormLabel className="text-xs text-muted-foreground">Email CC (cols)</FormLabel>
+                      <FormControl><Input className="bg-background font-mono text-sm" placeholder="G,I,K" {...field} value={field.value || ""} /></FormControl>
+                    </FormItem>
+                  )} />
+                </div>
+              </div>
+              <p className="text-xs text-muted-foreground pt-1">
+                Default sheet layout: <span className="font-mono">F</span>=AM Mobile · <span className="font-mono">G</span>=AM Email · <span className="font-mono">H</span>=CSS Mobile · <span className="font-mono">I</span>=CSS Email · <span className="font-mono">J</span>=Manager Mobile · <span className="font-mono">K</span>=Manager Email · <span className="font-mono">L</span>=MD Mobile · <span className="font-mono">M</span>=MD Email
+              </p>
             </CardContent>
           </Card>
 

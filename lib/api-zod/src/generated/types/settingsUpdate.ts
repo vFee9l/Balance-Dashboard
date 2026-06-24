@@ -32,4 +32,13 @@ export interface SettingsUpdate {
   totpEnabled?: boolean;
   totpSecret?: string;
   googleSheetUrl?: string;
+  warningSmsCols?: string;
+  warningEmailToCols?: string;
+  warningEmailCcCols?: string;
+  criticalSmsCols?: string;
+  criticalEmailToCols?: string;
+  criticalEmailCcCols?: string;
+  emergencySmsCols?: string;
+  emergencyEmailToCols?: string;
+  emergencyEmailCcCols?: string;
 }
