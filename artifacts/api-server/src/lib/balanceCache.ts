@@ -3,6 +3,7 @@ export interface CachedBalance {
   remainingBalance: number;
   daysRemaining: number;
   severity: string;
+  financeId: string | null;
 }
 
 let _cache: CachedBalance[] = [];

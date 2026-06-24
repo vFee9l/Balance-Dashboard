@@ -9,6 +9,7 @@ import {
 
 type ClientBalance = {
   metric: string;
+  financeId?: string | null;
   remainingBalance: number;
   dailyConsumption: number;
   recentDailyConsumption: number;
@@ -206,7 +207,9 @@ export default function Dashboard() {
   const filteredBalances = useMemo(() => {
     if (!balances) return [];
     const filtered = balances.filter((b: ClientBalance) => {
-      const matchOrg = orgFilter === "" || b.metric.toLowerCase().includes(orgFilter.toLowerCase());
+      const matchOrg = orgFilter === "" ||
+        b.metric.toLowerCase().includes(orgFilter.toLowerCase()) ||
+        (b.financeId != null && String(b.financeId).includes(orgFilter));
       const matchStatus = statusFilter === "all" || b.severity.toLowerCase() === statusFilter.toLowerCase();
       return matchOrg && matchStatus;
     });
@@ -387,10 +390,10 @@ export default function Dashboard() {
               <div className="relative">
                 <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
                 <Input
-                  placeholder="Search org..."
+                  placeholder="Search org or ID..."
                   value={orgFilter}
                   onChange={(e) => setOrgFilter(e.target.value)}
-                  className="pl-8 h-9 w-44 bg-background/50 text-sm"
+                  className="pl-8 h-9 w-48 bg-background/50 text-sm"
                 />
               </div>
               {/* Status filter */}
@@ -424,6 +427,7 @@ export default function Dashboard() {
             <TableHeader>
               <TableRow className="border-border/50 hover:bg-transparent">
                 <SortableHead col="metric" label="Metric/Client" sortCol={sortCol} sortDir={sortDir} onSort={handleSort} align="left" />
+                <TableHead className="text-muted-foreground text-xs font-medium w-20">ID</TableHead>
                 <SortableHead col="remainingBalance" label="Balance" sortCol={sortCol} sortDir={sortDir} onSort={handleSort} align="right" />
                 <SortableHead col="dailyConsumption" label="Avg/Day (prev. mo.)" sortCol={sortCol} sortDir={sortDir} onSort={handleSort} align="right" title="Average daily consumption based on the previous 30 days" />
                 <SortableHead col="dailyChangePercent" label="Daily Δ" sortCol={sortCol} sortDir={sortDir} onSort={handleSort} align="right" title="Yesterday's consumption vs the day before: red = increased (burning faster), green = decreased" />
@@ -437,6 +441,7 @@ export default function Dashboard() {
                 Array.from({ length: 5 }).map((_, i) => (
                   <TableRow key={i} className="border-border/50">
                     <TableCell><Skeleton className="h-5 w-32" /></TableCell>
+                    <TableCell><Skeleton className="h-5 w-12" /></TableCell>
                     <TableCell className="text-right"><Skeleton className="h-5 w-20 ml-auto" /></TableCell>
                     <TableCell className="text-right"><Skeleton className="h-5 w-20 ml-auto" /></TableCell>
                     <TableCell className="text-right"><Skeleton className="h-5 w-16 ml-auto" /></TableCell>
@@ -447,7 +452,7 @@ export default function Dashboard() {
                 ))
               ) : filteredBalances.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={7} className="h-24 text-center text-muted-foreground">
+                  <TableCell colSpan={8} className="h-24 text-center text-muted-foreground">
                     {balances?.length === 0
                       ? "No client balance data available. Check Grafana connection in Settings."
                       : "No clients match the current filters."}
@@ -466,6 +471,9 @@ export default function Dashboard() {
                         {balance.metric}
                         <BarChart2 className="w-3.5 h-3.5 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity" />
                       </span>
+                    </TableCell>
+                    <TableCell className="text-xs text-muted-foreground font-mono w-20">
+                      {balance.financeId ?? <span className="opacity-40">—</span>}
                     </TableCell>
                     <TableCell className="text-right font-mono">
                       <span className={balance.remainingBalance < 0 ? "text-red-400" : ""}>

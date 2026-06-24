@@ -29,7 +29,7 @@ router.post("/auth/login", async (req, res): Promise<void> => {
     return;
   }
 
-  const result = await verify({ token: otp, secret: settings.totpSecret, type: "totp" });
+  const result = await verify({ token: otp, secret: settings.totpSecret });
   if (!result.valid) {
     logger.warn("Invalid dashboard login attempt");
     res.status(401).json({ error: "Invalid code. Please try again." });

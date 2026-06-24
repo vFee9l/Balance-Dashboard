@@ -65,7 +65,7 @@ router.get("/settings/totp-setup", async (req, res): Promise<void> => {
       .where(eq(settingsTable.id, settings.id));
   }
 
-  const otpAuthUrl = generateURI({ label: "admin", issuer: APP_NAME, secret, type: "totp" });
+  const otpAuthUrl = generateURI({ label: "admin", issuer: APP_NAME, secret });
   const qrCodeUrl = await QRCode.toDataURL(otpAuthUrl);
 
   res.json({ secret, qrCodeUrl, otpAuthUrl });
@@ -90,7 +90,7 @@ router.post("/settings/verify-otp", async (req, res): Promise<void> => {
     return;
   }
 
-  const result = await verify({ token: body.data.otp, secret: settings.totpSecret, type: "totp" });
+  const result = await verify({ token: body.data.otp, secret: settings.totpSecret });
   if (!result.valid) {
     req.log.warn("Invalid TOTP attempt");
     res.status(401).json({ error: "Invalid code. Please try again." });

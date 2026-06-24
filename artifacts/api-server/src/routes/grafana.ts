@@ -20,6 +20,7 @@ interface ClientBalanceData {
   recentDailyConsumption: number;
   yesterdayConsumption: number;
   dayBeforeConsumption: number | null;
+  financeId: string | null;
 }
 
 interface GrafanaFrame {
@@ -76,6 +77,7 @@ async function fetchGrafanaBalances(): Promise<ClientBalanceData[]> {
       SELECT
         o.name AS metric,
         CASE WHEN oc.id IS NOT NULL THEN b.TotalOrganizationBalance ELSE b.TotalUserBalance END AS Remaining_Balance,
+        o.FinanceAccountId AS finance_id,
         ROW_NUMBER() OVER (PARTITION BY o.name ORDER BY b.CreatedDate DESC) AS rn
       FROM [RiCH-Web-2].[dbo].[BalanceHistory-Hour] b
       JOIN [RiCH-Web].[dbo].[Organisation] o ON o.id = b.id
@@ -84,7 +86,7 @@ async function fetchGrafanaBalances(): Promise<ClientBalanceData[]> {
         AND o.Status = 1
         AND o.FinanceAccountId NOT IN (508, 820, 906, 507, 1003, 552, 553, '', 534)
     )
-    SELECT metric, Remaining_Balance
+    SELECT metric, Remaining_Balance, finance_id
     FROM Latest
     WHERE rn = 1
     ORDER BY metric
@@ -225,7 +227,7 @@ async function fetchGrafanaBalances(): Promise<ClientBalanceData[]> {
   // These sub-orgs store their balance directly on the Organisation record, not in
   // the hourly history table. Mirrors the "Organization Balance" panel in RiCH Balance dashboard.
   const orgDirectBalanceSql = `
-    SELECT DISTINCT o.Name AS metric, o.Balance AS Remaining_Balance
+    SELECT DISTINCT o.Name AS metric, o.Balance AS Remaining_Balance, o.FinanceAccountId AS finance_id
     FROM [RiCH-Web].[dbo].[user] u
     JOIN [RiCH-Web].[dbo].[Organisation] o ON o.Id = u.OrganisationId
     WHERE o.Status = 1 AND u.Status = 1
@@ -359,6 +361,26 @@ function extractFrameMap(frames: GrafanaFrame[], metricField: string, valueField
   return map;
 }
 
+function extractStringFrameMap(frames: GrafanaFrame[], metricField: string, valueField: string): Map<string, string> {
+  const map = new Map<string, string>();
+  for (const frame of frames) {
+    const fields = frame.schema?.fields ?? [];
+    const values = frame.data?.values ?? [];
+    const metricIdx = fields.findIndex((f) => f.name === metricField);
+    const valueIdx = fields.findIndex((f) => f.name === valueField);
+    if (metricIdx === -1 || valueIdx === -1) continue;
+    const metrics = (values[metricIdx] ?? []) as string[];
+    const vals = (values[valueIdx] ?? []) as (string | number | null)[];
+    for (let i = 0; i < metrics.length; i++) {
+      const v = vals[i];
+      if (v !== undefined && v !== null && String(v).trim() !== "") {
+        map.set(metrics[i], String(v).trim());
+      }
+    }
+  }
+  return map;
+}
+
 function parseFramesToBalances(
   balanceFrames: GrafanaFrame[],
   consumptionFrames: GrafanaFrame[],
@@ -368,6 +390,10 @@ function parseFramesToBalances(
 ): ClientBalanceData[] {
   // Build balance map: metric → latest remaining balance
   const balanceMap = extractFrameMap(balanceFrames, "metric", "Remaining_Balance");
+
+  // Build finance ID maps from both query A and query E frames
+  const financeIdMapA = extractStringFrameMap(balanceFrames, "metric", "finance_id");
+  const financeIdMapE = extractStringFrameMap(directBalanceFrames, "metric", "finance_id");
 
   // Merge direct-balance entries (Organisation.Balance) for orgs that have no
   // BalanceHistory-Hour rows (e.g. AlRajhi-1, AlRajhi-2, AlRajhi-3).
@@ -401,7 +427,8 @@ function parseFramesToBalances(
     const rawRecent = recentConsumptionMap.get(metric) ?? 0;
     const recentDailyConsumption = rawRecent > 0 ? rawRecent : (dailyConsumption === 0 && yesterdayConsumption > 0 ? yesterdayConsumption : 0);
 
-    result.push({ metric, remainingBalance, dailyConsumption, recentDailyConsumption, yesterdayConsumption, dayBeforeConsumption });
+    const financeId = financeIdMapA.get(metric) ?? financeIdMapE.get(metric) ?? null;
+    result.push({ metric, remainingBalance, dailyConsumption, recentDailyConsumption, yesterdayConsumption, dayBeforeConsumption, financeId });
   }
 
   // Sort by effective days remaining (monthly rate preferred, 7-day fallback).
@@ -673,6 +700,7 @@ router.get("/grafana/balances", async (req, res): Promise<void> => {
 
     return {
       metric: b.metric,
+      financeId: b.financeId ?? null,
       remainingBalance: b.remainingBalance,
       dailyConsumption: b.dailyConsumption,
       daysRemaining,
@@ -726,6 +754,7 @@ router.get("/grafana/balances", async (req, res): Promise<void> => {
         remainingBalance: r.remainingBalance,
         daysRemaining: r.daysRemaining,
         severity: r.severity,
+        financeId: r.financeId ?? null,
       }))
     );
   }).catch(() => { /* non-fatal */ });
@@ -815,79 +844,88 @@ async function sendTelegramNotification(
 }
 
 // ─── Google Sheet contact row ──────────────────────────────────────────────────
-interface SheetContact {
-  name: string;
-  email: string;
-  clientName: string;
-  ccs: string[];       // Account Manager/Director emails to CC
+// Per-client contact row from the Google Sheet.
+// Column layout (0-based CSV index):
+//   C=2  Account Manager/Director name
+//   D=3  CCS name
+//   E=4  Finance ID  ← key for matching Grafana data
+//   F=5  AM Mobile No  (comma-separated for multiple)
+//   G=6  AM Email      (comma-separated)
+//   H=7  CSS Mobile No (comma-separated)
+//   I=8  CSS Email     (comma-separated)
+//   J=9  Manager Mobile No (comma-separated)
+//   K=10 Manager Email     (comma-separated)
+//   L=11 MD Mobile No      (comma-separated)
+//   M=12 MD Email          (comma-separated)
+interface SheetRow {
+  financeId: string;
+  amMobiles: string[];
+  amEmails: string[];
+  cssMobiles: string[];
+  cssEmails: string[];
+  managerMobiles: string[];
+  managerEmails: string[];
+  mdMobiles: string[];
+  mdEmails: string[];
 }
 
-// Fetch contacts from a public Google Sheet (CSV export).
-// Expected columns: Name, Phone, Email  (test sheet)
-// Real sheet columns: Client Name, CCS, Account Manager/Director, ...
-// The function normalises both layouts by detecting column headers.
-async function fetchSheetContacts(sheetUrl: string): Promise<SheetContact[]> {
+// Parse a CSV line, respecting double-quoted fields that may contain commas.
+function parseCsvLine(line: string): string[] {
+  const result: string[] = [];
+  let current = "";
+  let inQuote = false;
+  for (let i = 0; i < line.length; i++) {
+    const ch = line[i];
+    if (ch === '"') { inQuote = !inQuote; continue; }
+    if (ch === "," && !inQuote) { result.push(current.trim()); current = ""; continue; }
+    current += ch;
+  }
+  result.push(current.trim());
+  return result;
+}
+
+// Split a cell value that may contain multiple comma-separated entries.
+function splitCell(cell: string | undefined): string[] {
+  return (cell ?? "").split(",").map((s) => s.trim()).filter(Boolean);
+}
+
+// Fetch the Google Sheet as CSV and return a Map keyed by Finance ID.
+// The sheet must be shared with "Anyone with the link can view".
+async function fetchSheetRows(sheetUrl: string): Promise<Map<string, SheetRow>> {
+  const map = new Map<string, SheetRow>();
   try {
-    // Convert edit URL → CSV export URL
     const csvUrl = sheetUrl
-      .replace(/\/edit.*$/, "/export?format=csv")
-      .replace(/\/pub.*$/, "/export?format=csv");
-    const resp = await fetch(csvUrl, { signal: AbortSignal.timeout(10000) });
+      .replace(/\/edit[^?]*(\?.*)?$/, "/export?format=csv")
+      .replace(/\/pub[^?]*(\?.*)?$/, "/export?format=csv");
+    const resp = await fetch(csvUrl, { signal: AbortSignal.timeout(15_000) });
     if (!resp.ok) {
       logger.warn({ status: resp.status, sheetUrl }, "Failed to fetch Google Sheet");
-      return [];
+      return map;
     }
     const text = await resp.text();
     const lines = text.trim().split(/\r?\n/);
-    if (lines.length < 2) return [];
-
-    // Parse a CSV line respecting quoted fields
-    const parseCsvLine = (line: string): string[] => {
-      const result: string[] = [];
-      let current = "";
-      let inQuote = false;
-      for (let i = 0; i < line.length; i++) {
-        const ch = line[i];
-        if (ch === '"') { inQuote = !inQuote; continue; }
-        if (ch === "," && !inQuote) { result.push(current.trim()); current = ""; continue; }
-        current += ch;
-      }
-      result.push(current.trim());
-      return result;
-    };
-
-    const headers = parseCsvLine(lines[0]).map((h) => h.toLowerCase().trim());
-    const contacts: SheetContact[] = [];
-
-    // Detect layout
-    const nameIdx = headers.findIndex((h) => h === "name" || h.includes("client"));
-    const emailIdx = headers.findIndex((h) => h === "email" || h.includes("ccs") || h.includes("account manager"));
-    const ccIdx = headers.findIndex((h) => h.includes("account manager") || h.includes("director"));
-
-    if (nameIdx === -1 || emailIdx === -1) {
-      logger.warn({ headers }, "Google Sheet has unexpected column layout");
-      return [];
-    }
-
+    // Row 0 is the header — skip it and start at row 1
     for (let i = 1; i < lines.length; i++) {
       const cols = parseCsvLine(lines[i]);
-      const name = cols[nameIdx]?.trim() ?? "";
-      const email = cols[emailIdx]?.trim() ?? "";
-      const cc = ccIdx !== -1 ? (cols[ccIdx]?.trim() ?? "") : "";
-      if (!name && !email) continue;
-      contacts.push({
-        name,
-        email,
-        clientName: name,
-        ccs: cc ? cc.split(/[;,\s]+/).filter(Boolean) : [],
+      const financeId = (cols[4] ?? "").trim(); // column E (index 4)
+      if (!financeId) continue;
+      map.set(financeId, {
+        financeId,
+        amMobiles:      splitCell(cols[5]),   // F
+        amEmails:       splitCell(cols[6]),   // G
+        cssMobiles:     splitCell(cols[7]),   // H
+        cssEmails:      splitCell(cols[8]),   // I
+        managerMobiles: splitCell(cols[9]),   // J
+        managerEmails:  splitCell(cols[10]),  // K
+        mdMobiles:      splitCell(cols[11]),  // L
+        mdEmails:       splitCell(cols[12]),  // M
       });
     }
-
-    return contacts;
+    logger.info({ rowCount: map.size }, "Google Sheet contacts loaded");
   } catch (err) {
     logger.warn({ err }, "Google Sheet fetch error");
-    return [];
   }
+  return map;
 }
 
 // Send an email via SMTP with optional CC recipients.
@@ -959,24 +997,79 @@ export async function runAlertChecks(): Promise<{
   const thresholdManager = settings?.thresholdManager ?? 15;
   const thresholdMd = settings?.thresholdMd ?? 5;
 
-  // Load all contacts from DB — single source of truth for email and SMS
+  // Load DB contacts as fallback (used when no sheet row matches a client).
   const dbContacts = await db.select().from(contactsTable);
 
-  const staffEmails  = dbContacts.filter(c => c.role === "staff"   && c.email).map(c => c.email);
-  const managerEmails = dbContacts.filter(c => c.role === "manager" && c.email).map(c => c.email);
-  const mdEmails      = dbContacts.filter(c => c.role === "md"      && c.email).map(c => c.email);
+  const dbStaffEmails   = dbContacts.filter(c => c.role === "staff"   && c.email).map(c => c.email as string);
+  const dbManagerEmails = dbContacts.filter(c => c.role === "manager" && c.email).map(c => c.email as string);
+  const dbMdEmails      = dbContacts.filter(c => c.role === "md"      && c.email).map(c => c.email as string);
+  const dbStaffPhones   = dbContacts.filter(c => c.role === "staff").map(c => c.phoneNumber);
+  const dbManagerPhones = dbContacts.filter(c => c.role === "manager").map(c => c.phoneNumber);
+  const dbMdPhones      = dbContacts.filter(c => c.role === "md").map(c => c.phoneNumber);
 
-  logger.info({ staffCount: staffEmails.length, managerCount: managerEmails.length, mdCount: mdEmails.length }, "Alert contacts loaded from DB");
+  logger.info(
+    { dbStaff: dbStaffEmails.length, dbManager: dbManagerEmails.length, dbMd: dbMdEmails.length },
+    "DB fallback contacts loaded"
+  );
 
-  // No Google Sheet contacts needed — staff emails come from DB above
-  const sheetContacts: SheetContact[] = [];
+  // Load Google Sheet contacts keyed by Finance ID (per-client).
+  let sheetRows = new Map<string, SheetRow>();
+  if (settings?.googleSheetUrl) {
+    sheetRows = await fetchSheetRows(settings.googleSheetUrl);
+    logger.info({ sheetRowCount: sheetRows.size }, "Sheet contacts loaded");
+  }
+
+  // Resolve To/CC emails and SMS numbers for a client by severity.
+  // Prefers sheet contacts (per-client), falls back to DB contacts (global).
+  function resolveContacts(financeId: string | null, severity: string): {
+    toEmails: string[];
+    ccEmails: string[];
+    smsNumbers: string[];
+  } {
+    const row = financeId ? sheetRows.get(String(financeId)) : undefined;
+
+    if (row) {
+      const staffEmails = [...row.amEmails, ...row.cssEmails];
+      const staffMobiles = [...row.amMobiles, ...row.cssMobiles];
+      if (severity === "warning") {
+        return { toEmails: staffEmails, ccEmails: row.managerEmails, smsNumbers: staffMobiles };
+      } else if (severity === "critical") {
+        return {
+          toEmails: row.managerEmails,
+          ccEmails: [...staffEmails, ...row.mdEmails],
+          smsNumbers: [...staffMobiles, ...row.managerMobiles],
+        };
+      } else { // emergency
+        return {
+          toEmails: row.mdEmails,
+          ccEmails: [...row.managerEmails, ...staffEmails],
+          smsNumbers: [...row.mdMobiles, ...row.managerMobiles, ...staffMobiles],
+        };
+      }
+    }
+
+    // DB fallback — same routing rules applied to global contacts
+    if (severity === "warning") {
+      return { toEmails: dbStaffEmails, ccEmails: dbManagerEmails, smsNumbers: dbStaffPhones };
+    } else if (severity === "critical") {
+      return {
+        toEmails: dbManagerEmails,
+        ccEmails: [...dbStaffEmails, ...dbMdEmails],
+        smsNumbers: [...dbStaffPhones, ...dbManagerPhones],
+      };
+    } else { // emergency
+      return {
+        toEmails: dbMdEmails,
+        ccEmails: [...dbManagerEmails, ...dbStaffEmails],
+        smsNumbers: [...dbMdPhones, ...dbManagerPhones, ...dbStaffPhones],
+      };
+    }
+  }
 
   const rawBalances = await fetchGrafanaBalances();
 
   for (const b of rawBalances) {
     // Mirror the dashboard's logic exactly: prefer monthly avg, fall back to 7-day recent rate.
-    // Without this fallback a client with 0 monthly avg but non-zero recent consumption
-    // would be incorrectly treated as "ok" and receive no alert.
     const effectiveDaily = b.dailyConsumption > 0 ? b.dailyConsumption : b.recentDailyConsumption;
     const rawDays = effectiveDaily > 0 ? b.remainingBalance / effectiveDaily : null;
     const daysRemaining = rawDays === null ? -1 : Math.max(0, rawDays);
@@ -997,103 +1090,54 @@ export async function runAlertChecks(): Promise<{
       `Estimated Days Remaining: ${daysRemaining.toFixed(1)} days`;
     const subject = `[${severity.toUpperCase()}] SMS Balance Alert — ${b.metric} (${daysRemaining.toFixed(1)} days left)`;
 
+    const { toEmails, ccEmails, smsNumbers } = resolveContacts(b.financeId, severity);
     let contactsNotified = 0;
 
-    // ── Email logic ────────────────────────────────────────────────────────────
-    if (settings?.smtpEnabled) {
-      let toEmails: string[] = [];
-      let ccEmails: string[] = [];
+    logger.info(
+      { metric: b.metric, severity, financeId: b.financeId, sheetMatch: !!sheetRows.get(String(b.financeId ?? "")), toEmails, smsNumbers },
+      "Resolved alert contacts"
+    );
 
-      if (severity === "warning") {
-        // Warning → To: staff only, CC: managers
-        toEmails = staffEmails;
-        ccEmails = managerEmails;
-      } else if (severity === "critical") {
-        // Critical → To: staff + managers (no CC)
-        toEmails = [...staffEmails, ...managerEmails];
-        ccEmails = [];
-      } else if (severity === "emergency") {
-        // Emergency → To: everyone (MD + managers + staff)
-        toEmails = [...mdEmails, ...managerEmails, ...staffEmails];
-        ccEmails = [];
-      }
-
-      if (toEmails.length > 0) {
-        logger.info({ metric: b.metric, severity, to: toEmails, cc: ccEmails }, "Sending alert email");
-        const ok = await sendEmail({
-          to: toEmails,
-          cc: ccEmails,
-          subject,
-          text: alertText,
-          settings,
-        });
-        if (ok) {
-          notificationsSent++;
-          contactsNotified += toEmails.length;
-        } else {
-          errors.push(`Email failed for ${b.metric} (${severity})`);
-        }
-        await db.insert(alertHistoryTable).values({
-          metric: b.metric,
-          daysRemaining,
-          severity,
-          channel: "email",
-          recipientCount: ok ? toEmails.length : 0,
-          success: ok,
-          errorMessage: ok ? null : "SMTP send failed",
-        });
-      }
+    // ── Email ──────────────────────────────────────────────────────────────────
+    if (settings?.smtpEnabled && toEmails.length > 0) {
+      logger.info({ metric: b.metric, severity, to: toEmails, cc: ccEmails }, "Sending alert email");
+      const ok = await sendEmail({ to: toEmails, cc: ccEmails, subject, text: alertText, settings });
+      if (ok) { notificationsSent++; contactsNotified += toEmails.length; }
+      else { errors.push(`Email failed for ${b.metric} (${severity})`); }
+      await db.insert(alertHistoryTable).values({
+        metric: b.metric, daysRemaining, severity, channel: "email",
+        recipientCount: ok ? toEmails.length : 0, success: ok,
+        errorMessage: ok ? null : "SMTP send failed",
+      });
     }
 
-    // ── SMS logic (DB contacts, role-based) ───────────────────────────────────
-    if (settings?.smsEnabled) {
-      let eligibleContacts: typeof dbContacts = [];
-      if (severity === "warning") {
-        // Warning → staff only
-        eligibleContacts = dbContacts.filter((c) => c.role === "staff");
-      } else if (severity === "critical") {
-        // Critical → staff + managers
-        eligibleContacts = dbContacts.filter((c) => c.role === "staff" || c.role === "manager");
-      } else if (severity === "emergency") {
-        // Emergency → everyone (staff + managers + MD)
-        eligibleContacts = dbContacts;
-      }
-
-      if (eligibleContacts.length > 0) {
-        let smsSuccess = 0;
-        const smsErrors: string[] = [];
-        for (const contact of eligibleContacts) {
-          const result = await sendSmsNotification(contact.phoneNumber, alertText, settings);
-          if (result.ok) { smsSuccess++; notificationsSent++; contactsNotified++; }
-          else {
-            const errDetail = result.error ?? "Unknown error";
-            errors.push(`SMS failed for ${contact.fullName} (${contact.phoneNumber}): ${errDetail}`);
-            smsErrors.push(`${contact.fullName}: ${errDetail}`);
-          }
+    // ── SMS ────────────────────────────────────────────────────────────────────
+    if (settings?.smsEnabled && smsNumbers.length > 0) {
+      let smsSuccess = 0;
+      const smsErrors: string[] = [];
+      for (const phoneNumber of smsNumbers) {
+        const result = await sendSmsNotification(phoneNumber, alertText, settings);
+        if (result.ok) { smsSuccess++; notificationsSent++; contactsNotified++; }
+        else {
+          const errDetail = result.error ?? "Unknown error";
+          errors.push(`SMS failed for ${phoneNumber}: ${errDetail}`);
+          smsErrors.push(`${phoneNumber}: ${errDetail}`);
         }
-        await db.insert(alertHistoryTable).values({
-          metric: b.metric,
-          daysRemaining,
-          severity,
-          channel: "sms",
-          recipientCount: smsSuccess,
-          success: smsSuccess > 0,
-          errorMessage: smsErrors.length > 0 ? smsErrors.join(" | ") : null,
-        });
       }
+      await db.insert(alertHistoryTable).values({
+        metric: b.metric, daysRemaining, severity, channel: "sms",
+        recipientCount: smsSuccess, success: smsSuccess > 0,
+        errorMessage: smsErrors.length > 0 ? smsErrors.join(" | ") : null,
+      });
     }
 
-    // ── Telegram ──────────────────────────────────────────────────────────────
+    // ── Telegram ───────────────────────────────────────────────────────────────
     if (settings?.telegramEnabled) {
       const ok = await sendTelegramNotification(alertText, settings);
       if (ok) notificationsSent++;
       await db.insert(alertHistoryTable).values({
-        metric: b.metric,
-        daysRemaining,
-        severity,
-        channel: "telegram",
-        recipientCount: ok ? 1 : 0,
-        success: ok,
+        metric: b.metric, daysRemaining, severity, channel: "telegram",
+        recipientCount: ok ? 1 : 0, success: ok,
         errorMessage: ok ? null : "Telegram send failed",
       });
     }
@@ -1132,7 +1176,7 @@ export async function refreshBalanceCache(): Promise<void> {
       const rawDays = effectiveDaily > 0 ? b.remainingBalance / effectiveDaily : null;
       const daysRemaining = rawDays === null ? -1 : Math.max(0, Math.round(rawDays * 10) / 10);
       const severity = rawDays === null ? "ok" : computeSeverity(daysRemaining, thresholdStaff, thresholdManager, thresholdMd);
-      return { metric: b.metric, remainingBalance: b.remainingBalance, daysRemaining, severity };
+      return { metric: b.metric, remainingBalance: b.remainingBalance, daysRemaining, severity, financeId: b.financeId ?? null };
     })
   );
 }
