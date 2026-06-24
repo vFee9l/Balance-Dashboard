@@ -1,9 +1,15 @@
 import { Router } from "express";
 import { sql } from "drizzle-orm";
+import { fetch as undiciFetch, Agent } from "undici";
 import { db, settingsTable, alertHistoryTable, contactsTable, clientDailyConsumptionTable } from "@workspace/db";
 import { logger } from "../lib/logger";
 import { recordGrafanaFetch } from "../lib/healthTracker.js";
 import nodemailer from "nodemailer";
+
+// Custom undici agent with a 30-second TCP connect timeout (default is 10 s).
+// Grafana at grafana.t2.sa can be slow to accept connections under load.
+// Both fetch and Agent are from the same undici package to avoid version mismatch.
+const grafanaAgent = new Agent({ connect: { timeout: 30_000 } });
 
 const router = Router();
 
@@ -280,13 +286,23 @@ async function fetchGrafanaBalances(): Promise<ClientBalanceData[]> {
     to: "now",
   };
 
+  const grafanaFetch = async () => undiciFetch(`${grafanaUrl}/api/ds/query`, {
+    method: "POST",
+    headers,
+    body: JSON.stringify(payload),
+    signal: AbortSignal.timeout(45_000),
+    dispatcher: grafanaAgent,
+  });
+
   try {
-    const resp = await fetch(`${grafanaUrl}/api/ds/query`, {
-      method: "POST",
-      headers,
-      body: JSON.stringify(payload),
-      signal: AbortSignal.timeout(15000),
-    });
+    let resp: Response;
+    try {
+      resp = await grafanaFetch();
+    } catch (firstErr) {
+      logger.warn({ err: firstErr }, "Grafana fetch failed on first attempt, retrying in 5 s…");
+      await new Promise((r) => setTimeout(r, 5_000));
+      resp = await grafanaFetch();
+    }
 
     if (!resp.ok) {
       logger.warn({ status: resp.status, url: grafanaUrl }, "Grafana query failed");
