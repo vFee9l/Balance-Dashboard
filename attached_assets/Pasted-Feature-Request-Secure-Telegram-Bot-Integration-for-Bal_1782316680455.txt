@@ -1,0 +1,401 @@
+Feature Request: Secure Telegram Bot Integration for Balance Alert
+
+Add a fully hardened Telegram Bot integration. Security is the top priority. The bot must be resistant to unauthorized access, enumeration, brute force, replay attacks, and abuse. The bot token is configured by the admin through the Settings page and stored encrypted in the database — never in environment variables or plaintext.
+
+
+1. Database Changes
+
+sql-- Bot configuration (single row, token stored AES-256 encrypted)
+CREATE TABLE telegram_config (
+  id             SERIAL PRIMARY KEY,
+  bot_token_enc  TEXT NOT NULL,         -- AES-256-GCM encrypted, base64 stored
+  bot_username   VARCHAR(100),
+  enabled        BOOLEAN NOT NULL DEFAULT true,
+  updated_at     TIMESTAMPTZ DEFAULT NOW(),
+  updated_by     VARCHAR(100)
+);
+
+-- Registered Telegram users
+CREATE TABLE telegram_users (
+  id                  SERIAL PRIMARY KEY,
+  telegram_id         BIGINT UNIQUE NOT NULL,
+  telegram_username   VARCHAR(100),
+  name                VARCHAR(200) NOT NULL,
+  email               VARCHAR(200) NOT NULL,
+  status              VARCHAR(20) NOT NULL DEFAULT 'pending',
+  -- 'pending' | 'approved' | 'rejected' | 'suspended'
+  role                VARCHAR(20) NOT NULL DEFAULT 'viewer',
+  -- 'viewer' (alerts only) | 'operator' (alerts + checkbalance) | 'admin' (all)
+  requested_at        TIMESTAMPTZ DEFAULT NOW(),
+  reviewed_at         TIMESTAMPTZ,
+  reviewed_by         VARCHAR(100),
+  suspended_at        TIMESTAMPTZ,
+  suspended_reason    TEXT,
+  failed_attempts     INTEGER NOT NULL DEFAULT 0,
+  locked_until        TIMESTAMPTZ,
+  last_active_at      TIMESTAMPTZ,
+  session_expires_at  TIMESTAMPTZ        -- rolling 30-day expiry
+);
+
+-- Conversation state machine
+CREATE TABLE telegram_sessions (
+  telegram_id   BIGINT PRIMARY KEY REFERENCES telegram_users(telegram_id) ON DELETE CASCADE,
+  state         VARCHAR(50) NOT NULL DEFAULT 'idle',
+  context       JSONB,
+  updated_at    TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- Full audit log of every bot interaction
+CREATE TABLE telegram_audit_log (
+  id           BIGSERIAL PRIMARY KEY,
+  telegram_id  BIGINT,
+  username     VARCHAR(100),
+  command      VARCHAR(200),
+  args         TEXT,
+  ip_hint      VARCHAR(100),   -- Telegram DC region if detectable
+  result       VARCHAR(50),    -- 'success' | 'denied' | 'error' | 'rate_limited'
+  detail       TEXT,
+  created_at   TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- Rate limiting buckets
+CREATE TABLE telegram_rate_limits (
+  telegram_id   BIGINT NOT NULL,
+  bucket        VARCHAR(50) NOT NULL,  -- e.g. 'command', 'register'
+  count         INTEGER NOT NULL DEFAULT 0,
+  window_start  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  PRIMARY KEY (telegram_id, bucket)
+);
+
+-- Whitelist of allowed Telegram usernames (set by admin in Settings)
+CREATE TABLE telegram_whitelist (
+  id                SERIAL PRIMARY KEY,
+  telegram_username VARCHAR(100) UNIQUE NOT NULL,
+  added_by          VARCHAR(100),
+  added_at          TIMESTAMPTZ DEFAULT NOW(),
+  note              TEXT
+);
+
+CREATE INDEX idx_telegram_audit_id   ON telegram_audit_log(telegram_id);
+CREATE INDEX idx_telegram_audit_time ON telegram_audit_log(created_at DESC);
+CREATE INDEX idx_telegram_users_status ON telegram_users(status);
+
+
+2. Encryption for Bot Token
+
+
+Add ENCRYPTION_SECRET to .env.example — a 32-byte random hex string used as the AES-256-GCM key. This is the only secret kept in the environment.
+Generate a default on first run: crypto.randomBytes(32).toString('hex') and warn the admin to back it up.
+When the admin saves a bot token in Settings:
+
+Encrypt with AES-256-GCM using ENCRYPTION_SECRET.
+Store the IV + auth tag + ciphertext as a single base64 string in bot_token_enc.
+Never log or return the decrypted token in any API response.
+
+
+
+When starting the bot, decrypt in memory only — the plaintext token must never be written to disk, logs, or any database column.
+
+
+
+3. Settings Page — Bot Token & Security Configuration
+
+In the Settings page, add a "Telegram Bot" section with:
+
+Bot Token subsection
+
+
+Masked password input with show/hide toggle.
+On save: validate token via Telegram getMe API, encrypt, store. Show 🟢 Connected / 🔴 Invalid Token / 🟡 Connecting.
+A Rotate Token button that clears the stored token and prompts for a new one.
+A Disable Bot toggle (stops bot without deleting token).
+
+
+Whitelist subsection
+
+
+A list of allowed Telegram usernames (without @).
+Add / Remove entries.
+Toggle: "Require whitelist" — if ON, only whitelisted usernames can even send /register. Anyone else gets a generic "unauthorized" reply with no further information.
+Toggle: "Require admin approval" — if ON, whitelisted users still need admin approval before using commands (double gate).
+
+
+Session & Lockout subsection
+
+
+Session expiry: configurable (default 30 days). After expiry the user must re-register.
+Max failed attempts before lockout: configurable (default 5).
+Lockout duration: configurable (default 1 hour).
+Auto-suspend on lockout: if a user hits lockout more than 3 times → automatically suspend their account and notify admin via the dashboard.
+
+
+Rate limits subsection
+
+
+Max commands per minute per user: configurable (default 10).
+Max registration attempts per day per Telegram ID: configurable (default 3).
+
+
+
+4. Bot Security Middleware
+
+Before routing any message to a command handler, run ALL of the following checks in order. Fail fast — stop at the first failure and log it.
+
+4.1 Whitelist check
+
+
+If whitelist is enabled and the sender's username is not in telegram_whitelist → reply with a generic silent rejection (do not reveal the whitelist exists):
+
+"This bot is not available."
+
+
+
+
+Log the attempt to telegram_audit_log with result = 'denied'.
+
+
+4.2 Account lockout check
+
+
+If locked_until is set and NOW() < locked_until → reply:
+
+"Your account is temporarily locked. Please try again later."
+
+
+
+
+Do not reveal the unlock time (prevents timing attacks).
+
+
+4.3 Account suspension check
+
+
+If status = 'suspended' → reply:
+
+"Your account has been suspended. Please contact your administrator."
+
+
+
+
+Log and stop. No further processing.
+
+
+4.4 Session expiry check
+
+
+If session_expires_at < NOW() → reset user status to pending, clear session, reply:
+
+"Your session has expired. Please /register again to request access."
+
+
+
+
+Log the expiry event.
+
+
+4.5 Rate limit check
+
+
+Check the telegram_rate_limits table for the command bucket.
+If the user has exceeded the configured max commands per minute → reply:
+
+"You are sending commands too quickly. Please wait a moment."
+
+
+
+
+Increment failed_attempts on repeated rate limit hits.
+Log with result = 'rate_limited'.
+
+
+4.6 Authorization check (per command)
+
+
+/alerts requires role IN ('viewer', 'operator', 'admin') and status = 'approved'.
+/checkbalance requires role IN ('operator', 'admin') and status = 'approved'.
+Any unauthorized access attempt → increment failed_attempts, log, reply:
+
+"❌ You are not authorized to use this command."
+
+
+
+
+If failed_attempts >= max_attempts → set locked_until = NOW() + lockout_duration, send the lockout reply, log.
+
+
+
+5. Bot Commands
+
+/start or /register
+
+
+Run full middleware stack.
+If whitelist enabled and user not on whitelist → generic rejection (see 4.1).
+If user has a pending or approved account → reply with status, do not create duplicate.
+Check rate limit for register bucket (max 3 per day per telegram_id).
+Start registration flow:
+
+State → awaiting_name. Ask for full name.
+State → awaiting_email. Validate email format strictly (RFC 5322 regex). Reject disposable/temporary email domains (check against a known list of disposable providers).
+On valid email → insert into telegram_users with status = 'pending'.
+Reply: "✅ Registration submitted. You will be notified when an admin reviews your request."
+Emit notification to dashboard badge.
+
+
+
+
+
+/alerts
+
+
+Requires viewer role or higher.
+Fetch active alerts. Format each as:
+
+
+  🔔 {Client Name}
+  Balance: {amount}
+  Threshold: {threshold}
+  Triggered: {relative time}
+
+
+Paginate if more than 10 alerts (send in batches with "Show more" inline button).
+Log command + result count to audit log.
+
+
+/checkbalance / /checkbalance {name}
+
+
+Requires operator role or higher.
+No argument → send paginated inline keyboard of clients (max 8 per page with prev/next buttons).
+With argument → partial match, case-insensitive. Show results or inline keyboard.
+Each balance reply includes last-updated timestamp.
+Log every balance query (client name, user, timestamp) to audit log.
+
+
+/help
+
+
+Always available, no auth required (only show commands the user is actually authorized to use based on their role).
+
+
+/status
+
+
+Show the user their own account status: role, session expiry, last active.
+
+
+Unrecognized input
+
+
+If state is idle: reply "Use /help to see available commands." Do not echo back the user's input (prevents injection reflection).
+
+
+
+6. Input Sanitization
+
+
+Strip all HTML and Markdown from user inputs (name, email, client search) before storing or processing. Use a sanitize library.
+Limit input length: name max 200 chars, email max 254 chars, search query max 100 chars. Truncate silently and log if exceeded.
+Client search: use parameterized queries only. Never interpolate user input into SQL strings.
+Never echo raw user input back in bot replies without sanitizing it first.
+Reject any message containing null bytes, control characters, or Unicode direction overrides (RTL/LTR marks used in spoofing attacks).
+
+
+
+7. Audit Log
+
+Every command, every access denial, every lockout, every registration, every approval/rejection must be written to telegram_audit_log with:
+
+
+telegram_id, username, command, args (sanitized), result, detail, created_at.
+
+
+The Bot Users tab in the dashboard must include an Audit Log sub-tab showing this table with filters by user, command, result, and date range.
+
+Audit logs are append-only — no API route to delete them. Retain for 90 days minimum (add a scheduled cleanup job that deletes rows older than 90 days).
+
+
+8. Admin Controls in Dashboard — "Bot Users" Tab
+
+Users sub-tab
+
+
+Table: Name, Email, Telegram Username, Role, Status, Last Active, Requested At.
+Actions per row:
+
+✅ Approve → set status = 'approved', set session_expires_at = NOW() + 30 days, notify user via Telegram.
+❌ Reject → set status = 'rejected', notify user via Telegram.
+🔄 Change Role → dropdown: viewer / operator / admin.
+🚫 Suspend → prompt for reason, set status = 'suspended', suspended_at, suspended_reason, notify user.
+🔓 Unlock → clear locked_until and reset failed_attempts.
+♻️ Reset Session → clear session_expires_at and force re-registration.
+
+
+
+Pending count badge refreshes every 30 seconds.
+
+
+Whitelist sub-tab
+
+
+Add/remove Telegram usernames.
+Toggle whitelist enforcement on/off.
+
+
+Audit Log sub-tab
+
+
+Filterable, paginated table of telegram_audit_log.
+Export to CSV button.
+
+
+
+9. API Routes
+
+All routes protected by existing session auth middleware. Add rate limiting middleware on these routes too.
+
+PUT    /api/settings/telegram                    — save encrypted token, restart bot
+GET    /api/settings/telegram/status             — { connected, botUsername, enabled }
+DELETE /api/settings/telegram/token              — clear token, stop bot
+
+GET    /api/telegram/users                       — list all users (paginated)
+GET    /api/telegram/users/pending/count         — { count: N }
+PATCH  /api/telegram/users/:id/approve           — approve + notify + set session expiry
+PATCH  /api/telegram/users/:id/reject            — reject + notify
+PATCH  /api/telegram/users/:id/role              — change role
+PATCH  /api/telegram/users/:id/suspend           — suspend + notify
+PATCH  /api/telegram/users/:id/unlock            — unlock account
+PATCH  /api/telegram/users/:id/reset-session     — force re-registration
+
+GET    /api/telegram/whitelist                   — list whitelist entries
+POST   /api/telegram/whitelist                   — add username
+DELETE /api/telegram/whitelist/:id               — remove username
+
+GET    /api/telegram/audit                       — paginated audit log with filters
+GET    /api/telegram/audit/export                — CSV export
+
+
+10. Notification Security
+
+
+When sending Telegram messages to users (approval, rejection, lockout), do not include any sensitive data such as balance amounts, client names, or internal IDs in the notification.
+Approval message: "✅ Your account has been approved. You may now use /alerts and /checkbalance."
+Rejection message: "❌ Your registration was not approved. Contact your administrator for details."
+Lockout message: "Your account has been temporarily locked due to repeated failed attempts."
+Suspension message: "Your account has been suspended. Contact your administrator."
+If sending fails (user blocked the bot) → log silently, do not crash, mark in audit log.
+
+
+
+11. Packages to Install
+
+bashpnpm add node-telegram-bot-api
+pnpm add -D @types/node-telegram-bot-api
+pnpm add validator          # email & input validation
+pnpm add dompurify          # input sanitization (server-side via jsdom)
+pnpm add jsdom              # required peer for dompurify in Node
+
+
+12. Files to Create or Modify
+
+FileActiondb/migrations/XXXX_telegram_secure.sqlCreate — all new tablesartifacts/api-server/src/telegram/bot.tsCreate — bot engineartifacts/api-server/src/telegram/middleware.tsCreate — security middleware stackartifacts/api-server/src/telegram/commands.tsCreate — command handlersartifacts/api-server/src/telegram/encryption.tsCreate — AES-256-GCM encrypt/decryptartifacts/api-server/src/telegram/rateLimit.tsCreate — rate limit logicartifacts/api-server/src/telegram/audit.tsCreate — audit log writerartifacts/api-server/src/routes/telegram.tsCreate — all API routesartifacts/api-server/src/index.tsModify — start bot on startupartifacts/balance-alerts/src/pages/Settings.tsxModify — add Bot Token + security config sectionsartifacts/balance-alerts/src/pages/BotUsers.tsxCreate — users, whitelist, audit log tabsartifacts/balance-alerts/src/App.tsxModify — add Bot Users tab with badge

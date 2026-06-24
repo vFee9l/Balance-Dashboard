@@ -5,3 +5,6 @@ export * from "./clientDailyConsumption";
 export * from "./telegramConfig";
 export * from "./telegramUsers";
 export * from "./telegramSessions";
+export * from "./telegramAuditLog";
+export * from "./telegramRateLimits";
+export * from "./telegramWhitelist";
