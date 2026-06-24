@@ -38,7 +38,11 @@ export function invalidateConfigCache() {
 
 // ─── Public API ───────────────────────────────────────────────────────────────
 export async function startBot(token: string): Promise<{ username: string }> {
-  stopBot();
+  await stopBot();
+  // Give Telegram's servers 2 s to release the previous getUpdates session,
+  // otherwise we get a 409 Conflict on the very next poll.
+  await new Promise<void>((r) => setTimeout(r, 2000));
+
   const probe = new TelegramBot(token, { polling: false });
   const me = await probe.getMe();
   _botUsername = me.username ?? null;
@@ -51,10 +55,10 @@ export async function startBot(token: string): Promise<{ username: string }> {
   return { username: me.username ?? "" };
 }
 
-export function stopBot(): void {
+export async function stopBot(): Promise<void> {
   if (_restartTimer) { clearTimeout(_restartTimer); _restartTimer = null; }
   if (bot) {
-    try { bot.stopPolling(); } catch (_) { /* ignore */ }
+    try { await bot.stopPolling(); } catch (_) { /* ignore */ }
     bot = null;
     _connected = false;
     _botUsername = null;

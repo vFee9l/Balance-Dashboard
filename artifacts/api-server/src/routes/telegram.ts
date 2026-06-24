@@ -51,7 +51,7 @@ router.put("/settings/telegram", async (req, res): Promise<void> => {
 
   // Toggle disable without changing token
   if (enabled === false) {
-    stopBot();
+    await stopBot();
     await db.update(telegramConfigTable).set({ enabled: false, updatedAt: new Date() }).where(eq(telegramConfigTable.id, 1));
     invalidateConfigCache();
     res.json({ ok: true, connected: false });
@@ -118,7 +118,7 @@ router.get("/settings/telegram/status", async (_req, res): Promise<void> => {
 });
 
 router.delete("/settings/telegram/token", async (_req, res): Promise<void> => {
-  stopBot();
+  await stopBot();
   await db.update(telegramConfigTable).set({ botTokenEnc: "", enabled: false, updatedAt: new Date() }).where(eq(telegramConfigTable.id, 1));
   invalidateConfigCache();
   res.json({ ok: true });
