@@ -31,8 +31,8 @@ export function Sidebar() {
 
   const navigation = [
     { name: "Dashboard", href: "/", icon: LayoutDashboard, badge: 0, adminOnly: false },
-    { name: "Contacts", href: "/contacts", icon: Users, badge: 0, adminOnly: false },
-    { name: "History", href: "/history", icon: History, badge: 0, adminOnly: false },
+    { name: "Contacts", href: "/contacts", icon: Users, badge: 0, adminOnly: true },
+    { name: "History", href: "/history", icon: History, badge: 0, adminOnly: true },
     { name: "Bot Users", href: "/bot-users", icon: Bot, badge: pendingBotCount, adminOnly: true },
     { name: "Settings", href: "/settings", icon: Settings, badge: 0, adminOnly: true },
     { name: "Users", href: "/users", icon: UserCog, badge: 0, adminOnly: true },
