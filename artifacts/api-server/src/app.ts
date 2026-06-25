@@ -6,29 +6,29 @@ import FileStoreFactory from "session-file-store";
 import { resolve, join, dirname } from "path";
 import { existsSync, mkdirSync } from "fs";
 import { fileURLToPath } from "url";
-import router from "./routes";
-import { logger } from "./lib/logger";
-import { db, settingsTable } from "@workspace/db";
+import router from "./routes/index.js";
+import { logger } from "./lib/logger.js";
 
 const FileStore = FileStoreFactory(session);
 
 declare module "express-session" {
   interface SessionData {
     authenticated: boolean;
+    userId: number;
+    role: string;
+    username: string;
+    pendingUserId: number;
+    pendingNeedsSetup: boolean;
+    pendingTotpEnc: string;
   }
 }
 
 const sessionSecret = process.env["SESSION_SECRET"] ?? "balance-alert-secret-change-me";
 
-// Persist sessions to disk so restarts don't invalidate logged-in users and
-// to avoid the MemoryStore production warning.
 const __filename = fileURLToPath(import.meta.url);
 const __dirname_esm = dirname(__filename);
-// Place sessions folder next to the built bundle, or use SESSIONS_PATH override.
 const sessionsPath = process.env["SESSIONS_PATH"] ?? resolve(__dirname_esm, "../sessions");
-if (!existsSync(sessionsPath)) {
-  mkdirSync(sessionsPath, { recursive: true });
-}
+if (!existsSync(sessionsPath)) mkdirSync(sessionsPath, { recursive: true });
 logger.info({ sessionsPath }, "Session file store initialized");
 
 const app: Express = express();
@@ -37,18 +37,8 @@ app.use(
   pinoHttp({
     logger,
     serializers: {
-      req(req) {
-        return {
-          id: req.id,
-          method: req.method,
-          url: req.url?.split("?")[0],
-        };
-      },
-      res(res) {
-        return {
-          statusCode: res.statusCode,
-        };
-      },
+      req(req) { return { id: req.id, method: req.method, url: req.url?.split("?")[0] }; },
+      res(res) { return { statusCode: res.statusCode }; },
     },
   }),
 );
@@ -61,8 +51,8 @@ app.use(
     store: new FileStore({
       path: sessionsPath,
       retries: 1,
-      ttl: 8 * 60 * 60, // 8 hours in seconds
-      reapInterval: 60 * 60, // clean up expired sessions every hour
+      ttl: 8 * 60 * 60,
+      reapInterval: 60 * 60,
     }),
     secret: sessionSecret,
     resave: false,
@@ -70,52 +60,52 @@ app.use(
     cookie: {
       httpOnly: true,
       secure: false,
-      maxAge: 8 * 60 * 60 * 1000, // 8 hours
+      maxAge: 8 * 60 * 60 * 1000,
     },
-  })
+  }),
 );
 
-// Auth guard middleware: enforce TOTP login when it's enabled
-app.use("/api", async (req, res, next) => {
-  // Always allow: health check, monitoring probes, auth routes
-  if (req.path === "/healthz" || req.path.startsWith("/health/") || req.path.startsWith("/auth/")) {
-    return next();
+// ─── Auth guard ───────────────────────────────────────────────────────────────
+app.use("/api", (req, res, next): void => {
+  if (
+    req.path === "/healthz" ||
+    req.path.startsWith("/health/") ||
+    req.path.startsWith("/auth/")
+  ) {
+    next(); return;
   }
-
-  // If already authenticated via session, allow through
-  if (req.session.authenticated) {
-    return next();
-  }
-
-  // Check if auth is required
-  try {
-    const rows = await db.select({ totpEnabled: settingsTable.totpEnabled }).from(settingsTable).limit(1);
-    const totpEnabled = rows[0]?.totpEnabled ?? false;
-    if (!totpEnabled) {
-      return next();
-    }
-  } catch {
-    // If DB check fails, allow through (don't block on DB error)
-    return next();
-  }
-
+  if (req.session.userId) { next(); return; }
   res.status(401).json({ error: "Authentication required" });
 });
 
+// ─── Role guard factory ───────────────────────────────────────────────────────
+export function requireRole(role: "admin" | "viewer") {
+  return (
+    req: import("express").Request,
+    res: import("express").Response,
+    next: import("express").NextFunction,
+  ): void => {
+    if (!req.session.userId) {
+      res.status(401).json({ error: "Authentication required" }); return;
+    }
+    if (role === "admin" && req.session.role !== "admin") {
+      res.status(403).json({ error: "Insufficient permissions" }); return;
+    }
+    next();
+  };
+}
+
 app.use("/api", router);
 
-// Serve the React SPA from the same Express process when the frontend dist is present.
-// This eliminates the need for nginx when running on a single port.
+// Serve React SPA
 const frontendDist =
   process.env.FRONTEND_DIST ??
-  resolve(__dirname, "../../../artifacts/balance-alerts/dist/public");
+  resolve(__dirname_esm, "../../../artifacts/balance-alerts/dist/public");
 
 if (existsSync(frontendDist)) {
   logger.info({ frontendDist }, "Serving React frontend static files");
   app.use(express.static(frontendDist));
-  app.get("/{*path}", (_req, res) => {
-    res.sendFile(join(frontendDist, "index.html"));
-  });
+  app.get("/{*path}", (_req, res) => { res.sendFile(join(frontendDist, "index.html")); });
 } else {
   logger.warn({ frontendDist }, "Frontend dist not found — build the frontend first");
 }

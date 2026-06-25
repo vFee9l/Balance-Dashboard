@@ -1,0 +1,210 @@
+Login Page with TOTP MFA, Roles, and No Public Registration — Prompt for Replit
+
+
+Copy everything below this line and paste it into Replit AI.
+
+
+
+
+Feature Request: Secure Login System
+
+Add a login page to the application with the following requirements. There is no public registration — accounts can only be created by an admin from inside the app. A default admin account is seeded automatically on first setup. Every user must configure TOTP (Time-based One-Time Password) two-factor authentication on their very first login before they can access anything else.
+
+
+1. Database Changes
+
+sqlCREATE TABLE app_users (
+  id                SERIAL PRIMARY KEY,
+  username          VARCHAR(100) UNIQUE NOT NULL,
+  email             VARCHAR(200) UNIQUE NOT NULL,
+  password_hash     TEXT NOT NULL,
+  role              VARCHAR(20) NOT NULL DEFAULT 'viewer', -- 'admin' | 'viewer'
+  totp_secret_enc   TEXT,                -- encrypted, NULL until user sets up TOTP
+  totp_enabled      BOOLEAN NOT NULL DEFAULT false,
+  must_setup_totp   BOOLEAN NOT NULL DEFAULT true,
+  is_active         BOOLEAN NOT NULL DEFAULT true,
+  failed_attempts   INTEGER NOT NULL DEFAULT 0,
+  locked_until      TIMESTAMPTZ,
+  last_login_at     TIMESTAMPTZ,
+  created_at        TIMESTAMPTZ DEFAULT NOW(),
+  created_by        VARCHAR(100)
+);
+
+CREATE TABLE app_user_sessions (
+  id            SERIAL PRIMARY KEY,
+  user_id       INTEGER NOT NULL REFERENCES app_users(id) ON DELETE CASCADE,
+  session_token TEXT UNIQUE NOT NULL,
+  ip_address    VARCHAR(100),
+  user_agent    TEXT,
+  created_at    TIMESTAMPTZ DEFAULT NOW(),
+  expires_at    TIMESTAMPTZ NOT NULL,
+  revoked       BOOLEAN NOT NULL DEFAULT false
+);
+
+CREATE TABLE app_login_audit (
+  id          BIGSERIAL PRIMARY KEY,
+  username    VARCHAR(100),
+  result      VARCHAR(30), -- 'success' | 'bad_password' | 'totp_failed' | 'locked' | 'inactive'
+  ip_address  VARCHAR(100),
+  created_at  TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX idx_app_login_audit_time ON app_login_audit(created_at DESC);
+
+
+2. Default Admin Seed
+
+On first run (or via a one-time seed script run automatically if app_users is empty), create a default admin account:
+
+
+Username: admin
+Email: admin@localhost (or read from an env var DEFAULT_ADMIN_EMAIL if set)
+Password: generate a strong random password on first boot (do NOT hardcode a known default password). Print it once to the server console/logs on first startup, clearly labeled:
+
+
+  ================================================
+  DEFAULT ADMIN ACCOUNT CREATED
+  Username: admin
+  Password: <generated-password>
+  Please log in and change this password immediately.
+  ================================================
+
+
+Set role = 'admin', must_setup_totp = true.
+This seed logic must only run if the app_users table is completely empty, so it never re-creates the admin account or resets the password on every restart.
+
+
+
+3. Login Flow
+
+Step 1 — Username/Email + Password
+
+
+POST /api/auth/login with { identifier, password } (identifier = username or email).
+Look up user by username or email.
+If not found → generic error: "Invalid username or password." (do not reveal which field was wrong).
+If is_active = false → "This account has been deactivated. Contact your administrator."
+If locked_until is in the future → "Account temporarily locked. Try again later."
+Verify password with bcrypt (or argon2) — never store or compare plaintext.
+On failure → increment failed_attempts, log to app_login_audit with result = 'bad_password'. After 5 failed attempts → set locked_until = NOW() + 30 minutes.
+On success → reset failed_attempts to 0.
+
+
+Step 2 — TOTP Setup or Verification
+
+
+If must_setup_totp = true (first login ever):
+
+Generate a new TOTP secret (use otplib or speakeasy).
+Encrypt the secret with the same AES-256-GCM encryption helper used for the Telegram bot token, store in totp_secret_enc.
+Return a QR code (as a data URL/SVG) for the user to scan with Google Authenticator / Authy / 1Password, along with the manual entry key as plain text backup.
+Show a screen: "Scan this QR code with your authenticator app, then enter the 6-digit code to confirm setup."
+POST /api/auth/totp/confirm-setup with the 6-digit code → verify it matches → set totp_enabled = true, must_setup_totp = false → issue a session.
+If the code is wrong → "Invalid code. Please try again." (allow retry, do not lock out on setup failures, but still rate-limit to prevent brute force, e.g. max 10 attempts per 10 minutes).
+
+
+
+If must_setup_totp = false (returning user):
+
+Show a screen: "Enter the 6-digit code from your authenticator app."
+POST /api/auth/totp/verify with the code → decrypt stored secret, verify with a ±1 time-step window (30s tolerance) → issue session.
+On failure → increment failed_attempts, log result = 'totp_failed'. Apply the same lockout policy as password failures.
+
+
+
+
+
+Step 3 — Session issuance
+
+
+On full success (password + TOTP), create a row in app_user_sessions with a cryptographically random session_token (32+ bytes), set an HTTP-only, secure, SameSite=Strict cookie.
+Session expiry: configurable, default 8 hours of inactivity, sliding (extend on activity) up to a max of 7 days absolute.
+Log result = 'success' to app_login_audit.
+Update last_login_at.
+
+
+
+4. Role-Based Access Control
+
+Two roles only:
+
+RoleAccessadminFull access to every page: dashboard, settings, bot users, telegram config, user management, audit logs — everything.viewerCan only access the Dashboard page. Any other route (Settings, Bot Users, User Management, etc.) must redirect to the dashboard with a message: "You do not have permission to view this page."
+
+Implementation requirements:
+
+
+Add an requireRole(role: 'admin' | 'viewer') middleware on the backend that checks the session's user role before allowing access to any protected API route. Apply requireRole('admin') to all admin-only routes (settings, telegram config, user management, audit log, bot users).
+On the frontend, wrap admin-only routes/pages in a <RequireAdmin> guard component that redirects non-admins to /dashboard.
+Hide admin-only nav links entirely from viewers (don't just block the route — don't show the link at all).
+Every API response for a forbidden action should return 403 Forbidden with { error: "Insufficient permissions" }.
+
+
+
+5. User Management Page (Admin Only)
+
+Add a new page, accessible only to admins, for managing accounts:
+
+
+Table: Username, Email, Role, Status (active/inactive), TOTP Enabled, Last Login.
+Create User button → form with username, email, temporary password (auto-generated, shown once), role dropdown (admin/viewer). New users always have must_setup_totp = true and must change the temporary password + set up TOTP on first login.
+Deactivate / Reactivate toggle per user.
+Reset TOTP button → clears totp_secret_enc, sets must_setup_totp = true, forcing the user to re-enroll on next login (use this if someone loses their authenticator device).
+Force Password Reset button → sets a flag requiring the user to change their password on next login.
+Unlock Account button → clears locked_until and failed_attempts.
+Admin cannot delete their own account or demote themselves to viewer if they are the only remaining admin (prevent total lockout).
+
+
+
+6. Login Audit Log Page (Admin Only)
+
+
+Paginated table of app_login_audit: username, result, IP address, timestamp.
+Filterable by username, result type, and date range.
+
+
+
+7. Security Requirements
+
+
+Passwords hashed with bcrypt (cost factor 12) or argon2id — never plaintext, never reversible encryption.
+TOTP secrets encrypted at rest using the existing AES-256-GCM helper (same one used for the Telegram bot token) — never stored in plaintext.
+Rate-limit /api/auth/login and /api/auth/totp/verify per IP address (e.g. max 10 attempts per 15 minutes per IP) in addition to the per-account lockout, to prevent distributed brute force.
+Session cookies: HttpOnly, Secure, SameSite=Strict.
+CSRF protection on all state-changing routes (use existing CSRF middleware if present, or add csurf/double-submit cookie pattern).
+On logout (POST /api/auth/logout), revoke the session row (revoked = true) and clear the cookie — do not just clear client-side.
+Provide a "Log out all other sessions" option for a user to revoke every session except the current one (useful if a device is lost).
+No password or TOTP secret should ever appear in logs, error messages, or API responses.
+
+
+
+8. Frontend Pages
+
+PageRouteAccessLogin/loginPublicTOTP Setup/login/totp-setupMid-login flow only (requires valid password step completed)TOTP Verify/login/totp-verifyMid-login flow onlyDashboard/dashboardadmin, viewerSettings/settingsadmin onlyBot Users/bot-usersadmin onlyUser Management/usersadmin onlyLogin Audit Log/audit/loginadmin only
+
+All routes except /login and the mid-login TOTP steps must redirect to /login if there is no valid, non-expired, non-revoked session.
+
+
+9. Packages to Install
+
+bashpnpm add bcrypt          # or argon2
+pnpm add -D @types/bcrypt
+pnpm add otplib           # TOTP generation/verification
+pnpm add qrcode           # generate QR code data URLs for TOTP setup
+
+
+10. Files to Create or Modify
+
+FileActiondb/migrations/XXXX_auth_login.sqlCreate — app_users, app_user_sessions, app_login_auditartifacts/api-server/src/auth/seedAdmin.tsCreate — first-run default admin seedingartifacts/api-server/src/auth/passwordAuth.tsCreate — login, password verification, lockout logicartifacts/api-server/src/auth/totp.tsCreate — TOTP secret generation, QR code, verificationartifacts/api-server/src/auth/session.tsCreate — session creation, validation, revocationartifacts/api-server/src/auth/middleware.tsCreate — requireAuth, requireRole middlewareartifacts/api-server/src/routes/auth.tsCreate — /api/auth/* routesartifacts/api-server/src/routes/users.tsCreate — admin user management routesartifacts/api-server/src/index.tsModify — call seedAdmin() on startup, mount auth routes/middlewareartifacts/balance-alerts/src/pages/Login.tsxCreate — login formartifacts/balance-alerts/src/pages/TotpSetup.tsxCreate — QR code + confirm setupartifacts/balance-alerts/src/pages/TotpVerify.tsxCreate — 6-digit code entryartifacts/balance-alerts/src/pages/UserManagement.tsxCreate — admin user CRUDartifacts/balance-alerts/src/pages/LoginAuditLog.tsxCreate — audit log viewerartifacts/balance-alerts/src/components/RequireAdmin.tsxCreate — route guardartifacts/balance-alerts/src/components/RequireAuth.tsxCreate — route guardartifacts/balance-alerts/src/App.tsxModify — wire up new routes and guards
+
+
+11. Verification Checklist
+
+After implementation, confirm:
+
+
+Fresh database boot creates exactly one default admin and prints the password once to logs.
+Logging in as the default admin forces TOTP setup before any other page is accessible.
+A viewer account cannot access /settings, /bot-users, /users, or /audit/login — both via direct URL and via the nav menu (links hidden).
+5 wrong passwords locks the account for 30 minutes.
+Losing access to TOTP can be recovered only by an admin resetting it from User Management — there is no public "forgot TOTP" self-service flow.
+No registration endpoint or page exists anywhere in the app.

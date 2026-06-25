@@ -1,7 +1,8 @@
-import app from "./app";
-import { logger } from "./lib/logger";
-import { startScheduler, startBalanceCacheRefresher } from "./lib/scheduler";
+import app from "./app.js";
+import { logger } from "./lib/logger.js";
+import { startScheduler, startBalanceCacheRefresher } from "./lib/scheduler.js";
 import { tryAutoStart } from "./telegram/bot.js";
+import { seedAdminIfEmpty } from "./auth/seedAdmin.js";
 import { db } from "@workspace/db";
 import { sql } from "drizzle-orm";
 
@@ -17,11 +18,6 @@ if (Number.isNaN(port) || port <= 0) {
   throw new Error(`Invalid PORT value: "${rawPort}"`);
 }
 
-/**
- * Verify that critical DB tables have the expected constraints.
- * Logs a loud warning (not fatal) so the server still starts, but the
- * operator knows they need to run migrations.
- */
 async function checkSchema(): Promise<void> {
   try {
     const result = await db.execute(sql`
@@ -32,11 +28,11 @@ async function checkSchema(): Promise<void> {
     if (result.rows.length === 0) {
       logger.error(
         "[STARTUP] telegram_config table is missing its PRIMARY KEY constraint. " +
-        "Bot token saves will fail. Fix: run  pnpm --filter @workspace/scripts run migrate"
+        "Bot token saves will fail. Fix: run  pnpm --filter @workspace/scripts run migrate",
       );
     }
   } catch (err) {
-    logger.warn({ err }, "[STARTUP] Could not verify telegram_config schema — DB may not be reachable yet");
+    logger.warn({ err }, "[STARTUP] Could not verify telegram_config schema");
   }
 }
 
@@ -48,6 +44,7 @@ app.listen(port, async (err) => {
 
   logger.info({ port }, "Server listening");
   await checkSchema();
+  await seedAdminIfEmpty();
   startScheduler();
   startBalanceCacheRefresher();
   await tryAutoStart();

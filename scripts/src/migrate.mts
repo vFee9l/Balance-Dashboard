@@ -227,6 +227,65 @@ const migrations: Array<{ label: string; sql: string }> = [
       )
     `,
   },
+
+  // ── app_users ────────────────────────────────────────────────────────────────
+  {
+    label: "create app_users table",
+    sql: `
+      CREATE TABLE IF NOT EXISTS app_users (
+        id              serial       PRIMARY KEY,
+        username        varchar(100) UNIQUE NOT NULL,
+        email           varchar(200) UNIQUE NOT NULL,
+        password_hash   text         NOT NULL,
+        role            varchar(20)  NOT NULL DEFAULT 'viewer',
+        totp_secret_enc text,
+        totp_enabled    boolean      NOT NULL DEFAULT false,
+        must_setup_totp boolean      NOT NULL DEFAULT true,
+        must_change_pw  boolean      NOT NULL DEFAULT false,
+        is_active       boolean      NOT NULL DEFAULT true,
+        failed_attempts integer      NOT NULL DEFAULT 0,
+        locked_until    timestamptz,
+        last_login_at   timestamptz,
+        created_at      timestamptz  DEFAULT NOW(),
+        created_by      varchar(100)
+      )
+    `,
+  },
+
+  // ── app_user_sessions ─────────────────────────────────────────────────────
+  {
+    label: "create app_user_sessions table",
+    sql: `
+      CREATE TABLE IF NOT EXISTS app_user_sessions (
+        id            serial    PRIMARY KEY,
+        user_id       integer   NOT NULL REFERENCES app_users(id) ON DELETE CASCADE,
+        session_token text      UNIQUE NOT NULL,
+        ip_address    varchar(100),
+        user_agent    text,
+        created_at    timestamptz DEFAULT NOW(),
+        expires_at    timestamptz NOT NULL,
+        revoked       boolean   NOT NULL DEFAULT false
+      )
+    `,
+  },
+
+  // ── app_login_audit ───────────────────────────────────────────────────────
+  {
+    label: "create app_login_audit table",
+    sql: `
+      CREATE TABLE IF NOT EXISTS app_login_audit (
+        id         bigserial   PRIMARY KEY,
+        username   varchar(100),
+        result     varchar(30),
+        ip_address varchar(100),
+        created_at timestamptz DEFAULT NOW()
+      )
+    `,
+  },
+  {
+    label: "app_login_audit: index on created_at",
+    sql: `CREATE INDEX IF NOT EXISTS idx_app_login_audit_time ON app_login_audit(created_at DESC)`,
+  },
 ];
 
 async function main(): Promise<void> {

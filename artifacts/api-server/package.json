@@ -14,6 +14,7 @@
     "@types/session-file-store": "^1.2.6",
     "@workspace/api-zod": "workspace:*",
     "@workspace/db": "workspace:*",
+    "bcrypt": "^6.0.0",
     "cookie-parser": "^1.4.7",
     "cors": "^2",
     "drizzle-orm": "catalog:",
@@ -29,6 +30,7 @@
     "undici": "^8.5.0"
   },
   "devDependencies": {
+    "@types/bcrypt": "^6.0.0",
     "@types/cookie-parser": "^1.4.10",
     "@types/cors": "^2.8.19",
     "@types/express": "^5.0.6",

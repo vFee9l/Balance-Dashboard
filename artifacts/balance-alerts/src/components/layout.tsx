@@ -1,7 +1,11 @@
 import { Link, useLocation } from "wouter";
-import { LayoutDashboard, Users, History, Settings, Zap, LogOut, Bot } from "lucide-react";
+import {
+  LayoutDashboard, Users, History, Settings, Zap, LogOut,
+  Bot, UserCog, ClipboardList,
+} from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useQueryClient, useQuery } from "@tanstack/react-query";
+import { useAuth } from "@/App";
 
 function usePendingBotCount() {
   const { data } = useQuery<{ count: number }>({
@@ -21,15 +25,19 @@ function usePendingBotCount() {
 export function Sidebar() {
   const [location] = useLocation();
   const qc = useQueryClient();
+  const { role, username } = useAuth();
   const pendingBotCount = usePendingBotCount();
+  const isAdmin = role === "admin";
 
   const navigation = [
-    { name: "Dashboard", href: "/", icon: LayoutDashboard, badge: 0 },
-    { name: "Contacts", href: "/contacts", icon: Users, badge: 0 },
-    { name: "History", href: "/history", icon: History, badge: 0 },
-    { name: "Bot Users", href: "/bot-users", icon: Bot, badge: pendingBotCount },
-    { name: "Settings", href: "/settings", icon: Settings, badge: 0 },
-  ];
+    { name: "Dashboard", href: "/", icon: LayoutDashboard, badge: 0, adminOnly: false },
+    { name: "Contacts", href: "/contacts", icon: Users, badge: 0, adminOnly: false },
+    { name: "History", href: "/history", icon: History, badge: 0, adminOnly: false },
+    { name: "Bot Users", href: "/bot-users", icon: Bot, badge: pendingBotCount, adminOnly: true },
+    { name: "Settings", href: "/settings", icon: Settings, badge: 0, adminOnly: true },
+    { name: "Users", href: "/users", icon: UserCog, badge: 0, adminOnly: true },
+    { name: "Login Audit", href: "/audit/login", icon: ClipboardList, badge: 0, adminOnly: true },
+  ].filter((item) => !item.adminOnly || isAdmin);
 
   const handleLogout = async () => {
     await fetch("/api/auth/logout", { method: "POST", credentials: "include" });
@@ -40,7 +48,9 @@ export function Sidebar() {
     <div className="w-64 flex-shrink-0 border-r border-border bg-card h-screen flex flex-col fixed left-0 top-0">
       <div className="h-16 flex items-center px-6 border-b border-border bg-background">
         <Zap className="w-5 h-5 text-primary mr-2" />
-        <span className="font-bold text-lg tracking-tight uppercase">Balance<span className="text-primary">Alert</span></span>
+        <span className="font-bold text-lg tracking-tight uppercase">
+          Balance<span className="text-primary">Alert</span>
+        </span>
       </div>
       <div className="p-4 flex-1 overflow-y-auto">
         <nav className="space-y-1">
@@ -53,13 +63,13 @@ export function Sidebar() {
                     "flex items-center px-3 py-2.5 text-sm font-medium rounded-md cursor-pointer transition-colors group",
                     isActive
                       ? "bg-primary/10 text-primary border border-primary/20"
-                      : "text-muted-foreground hover:bg-secondary hover:text-foreground border border-transparent"
+                      : "text-muted-foreground hover:bg-secondary hover:text-foreground border border-transparent",
                   )}
                 >
                   <item.icon
                     className={cn(
                       "mr-3 flex-shrink-0 h-4 w-4",
-                      isActive ? "text-primary" : "text-muted-foreground group-hover:text-foreground"
+                      isActive ? "text-primary" : "text-muted-foreground group-hover:text-foreground",
                     )}
                     aria-hidden="true"
                   />
@@ -75,8 +85,15 @@ export function Sidebar() {
           })}
         </nav>
       </div>
-      {/* Logout button — only shown when auth is active */}
-      <div className="p-4 border-t border-border">
+      <div className="p-4 border-t border-border space-y-2">
+        {username && (
+          <p className="text-xs text-muted-foreground truncate px-3">
+            Signed in as <span className="font-medium text-foreground">{username}</span>
+            {role === "admin" && (
+              <span className="ml-1.5 text-[10px] font-semibold text-primary uppercase tracking-wider">Admin</span>
+            )}
+          </p>
+        )}
         <button
           onClick={handleLogout}
           className="flex items-center w-full px-3 py-2.5 text-sm font-medium rounded-md cursor-pointer transition-colors text-muted-foreground hover:bg-secondary hover:text-foreground border border-transparent group"
@@ -90,13 +107,15 @@ export function Sidebar() {
 }
 
 export function AppLayout({ children }: { children: React.ReactNode }) {
+  const { authenticated } = useAuth();
+  if (!authenticated) {
+    return <>{children}</>;
+  }
   return (
     <div className="min-h-screen bg-background text-foreground flex">
       <Sidebar />
       <main className="flex-1 ml-64 p-8">
-        <div className="max-w-7xl mx-auto">
-          {children}
-        </div>
+        <div className="max-w-7xl mx-auto">{children}</div>
       </main>
     </div>
   );

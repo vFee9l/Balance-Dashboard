@@ -1,5 +1,5 @@
 import { createContext, useContext } from "react";
-import { Switch, Route, Router as WouterRouter } from "wouter";
+import { Switch, Route, Router as WouterRouter, useLocation } from "wouter";
 import { QueryClient, QueryClientProvider, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -10,6 +10,8 @@ import History from "@/pages/history";
 import SettingsPage from "@/pages/settings";
 import BotUsers from "@/pages/BotUsers";
 import LoginPage from "@/pages/login";
+import UsersPage from "@/pages/users";
+import AuditLoginPage from "@/pages/audit-login";
 import NotFound from "@/pages/not-found";
 
 const queryClient = new QueryClient({
@@ -26,17 +28,23 @@ const queryClient = new QueryClient({
 });
 
 // ─── Auth context ──────────────────────────────────────────────────────────────
-interface AuthState {
+export interface AuthState {
   authenticated: boolean;
   requiresAuth: boolean;
   isLoading: boolean;
+  role: string | null;
+  username: string | null;
+  step: "totp_setup" | "totp_verify" | null;
   refetch: () => void;
 }
 
 const AuthContext = createContext<AuthState>({
   authenticated: false,
-  requiresAuth: false,
+  requiresAuth: true,
   isLoading: true,
+  role: null,
+  username: null,
+  step: null,
   refetch: () => {},
 });
 
@@ -46,6 +54,14 @@ export function useAuth() {
 
 const AUTH_CHECK_KEY = ["auth", "check"];
 
+interface AuthCheckResponse {
+  authenticated: boolean;
+  requiresAuth: boolean;
+  role?: string;
+  username?: string;
+  step?: "totp_setup" | "totp_verify";
+}
+
 function AuthProvider({ children }: { children: React.ReactNode }) {
   const qc = useQueryClient();
 
@@ -54,20 +70,23 @@ function AuthProvider({ children }: { children: React.ReactNode }) {
     queryFn: async () => {
       const resp = await fetch("/api/auth/check", { credentials: "include" });
       if (!resp.ok) throw new Error("Auth check failed");
-      return resp.json() as Promise<{ authenticated: boolean; requiresAuth: boolean }>;
+      return resp.json() as Promise<AuthCheckResponse>;
     },
     retry: false,
     staleTime: 30_000,
     refetchOnWindowFocus: false,
   });
 
+  const invalidate = () => qc.invalidateQueries({ queryKey: AUTH_CHECK_KEY });
+
   const authState: AuthState = {
     authenticated: data?.authenticated ?? false,
-    requiresAuth: data?.requiresAuth ?? false,
+    requiresAuth: data?.requiresAuth ?? true,
     isLoading,
-    refetch: () => {
-      qc.invalidateQueries({ queryKey: AUTH_CHECK_KEY });
-    },
+    role: data?.role ?? null,
+    username: data?.username ?? null,
+    step: data?.step ?? null,
+    refetch: invalidate,
   };
 
   if (isLoading) {
@@ -81,15 +100,26 @@ function AuthProvider({ children }: { children: React.ReactNode }) {
     );
   }
 
-  if (data?.requiresAuth && !data?.authenticated) {
+  if (!data?.authenticated) {
     return (
       <AuthContext.Provider value={authState}>
-        <LoginPage onSuccess={() => qc.invalidateQueries({ queryKey: AUTH_CHECK_KEY })} />
+        <LoginPage onSuccess={invalidate} initialStep={data?.step ?? null} />
       </AuthContext.Provider>
     );
   }
 
   return <AuthContext.Provider value={authState}>{children}</AuthContext.Provider>;
+}
+
+// ─── Admin-only guard ─────────────────────────────────────────────────────────
+function RequireAdmin({ children }: { children: React.ReactNode }) {
+  const { role } = useAuth();
+  const [, navigate] = useLocation();
+  if (role !== "admin") {
+    navigate("/");
+    return null;
+  }
+  return <>{children}</>;
 }
 
 // ─── Router ────────────────────────────────────────────────────────────────────
@@ -99,8 +129,18 @@ function Router() {
       <Route path="/" component={Dashboard} />
       <Route path="/contacts" component={Contacts} />
       <Route path="/history" component={History} />
-      <Route path="/settings" component={SettingsPage} />
-      <Route path="/bot-users" component={BotUsers} />
+      <Route path="/settings">
+        <RequireAdmin><SettingsPage /></RequireAdmin>
+      </Route>
+      <Route path="/bot-users">
+        <RequireAdmin><BotUsers /></RequireAdmin>
+      </Route>
+      <Route path="/users">
+        <RequireAdmin><UsersPage /></RequireAdmin>
+      </Route>
+      <Route path="/audit/login">
+        <RequireAdmin><AuditLoginPage /></RequireAdmin>
+      </Route>
       <Route component={NotFound} />
     </Switch>
   );
