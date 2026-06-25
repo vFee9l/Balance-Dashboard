@@ -5,6 +5,7 @@ import {
   useGetAlertSummary,
   getGetAlertSummaryQueryKey,
   useTriggerAlerts,
+  useGetSettings,
 } from "@workspace/api-client-react";
 
 type ClientBalance = {
@@ -118,6 +119,8 @@ export default function Dashboard() {
       refetchInterval: refetchMs,
     },
   });
+
+  const { data: settings } = useGetSettings();
 
   const { data: summary, isLoading: isLoadingSummary } = useGetAlertSummary({
     query: {
@@ -341,7 +344,7 @@ export default function Dashboard() {
             {isLoadingBalances ? <Skeleton className="h-7 w-20" /> : (
               <div className="text-2xl font-bold text-yellow-500">{liveCounts.warning}</div>
             )}
-            <p className="text-xs text-muted-foreground mt-1">&lt; 20 days remaining</p>
+            <p className="text-xs text-muted-foreground mt-1">&lt; {settings?.thresholdStaff ?? 20} days remaining</p>
           </CardContent>
         </Card>
 
@@ -358,7 +361,7 @@ export default function Dashboard() {
             {isLoadingBalances ? <Skeleton className="h-7 w-20" /> : (
               <div className="text-2xl font-bold text-red-500">{liveCounts.critical}</div>
             )}
-            <p className="text-xs text-muted-foreground mt-1">&lt; 15 days remaining</p>
+            <p className="text-xs text-muted-foreground mt-1">&lt; {settings?.thresholdManager ?? 15} days remaining</p>
           </CardContent>
         </Card>
 
@@ -375,7 +378,7 @@ export default function Dashboard() {
             {isLoadingBalances ? <Skeleton className="h-7 w-20" /> : (
               <div className="text-2xl font-bold text-red-400">{liveCounts.emergency}</div>
             )}
-            <p className="text-xs text-muted-foreground mt-1">&lt; 5 days remaining</p>
+            <p className="text-xs text-muted-foreground mt-1">&lt; {settings?.thresholdMd ?? 5} days remaining</p>
           </CardContent>
         </Card>
       </div>
