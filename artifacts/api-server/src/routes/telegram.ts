@@ -14,19 +14,22 @@ import { encrypt, decrypt } from "../lib/cryptoUtils.js";
 const router = Router();
 
 // ─── Helper: load or create config row ───────────────────────────────────────
+// Never uses ON CONFLICT — relies on select-first to avoid the "no unique
+// constraint" error on self-hosted DBs that may be missing the PK.
 async function getOrCreateConfig() {
-  // Always select first — avoids the duplicate-key error on self-hosted installs
-  // where the table already has a row from a previous run.
   const rows = await db.select().from(telegramConfigTable).limit(1);
   if (rows.length > 0) return rows[0]!;
 
-  // Table is empty — insert seed row using upsert so concurrent requests don't race.
-  await db
-    .insert(telegramConfigTable)
-    .values({ id: 1 })
-    .onConflictDoNothing();
+  // Table is empty — plain INSERT (no ON CONFLICT needed; the table is empty).
+  // If two requests race, one will get a duplicate-key error which we swallow.
+  try {
+    await db.insert(telegramConfigTable).values({ id: 1 });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    // Duplicate key = another request won the race; that's fine.
+    if (!msg.includes("duplicate") && !msg.includes("unique")) throw err;
+  }
 
-  // Re-select after upsert (handles the case where another request won the race).
   const [row] = await db.select().from(telegramConfigTable).limit(1);
   return row!;
 }

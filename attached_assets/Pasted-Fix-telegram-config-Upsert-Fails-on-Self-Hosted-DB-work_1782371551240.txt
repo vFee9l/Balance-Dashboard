@@ -1,0 +1,111 @@
+Fix: telegram_config Upsert Fails on Self-Hosted DB (works fine on Replit host)
+
+
+Copy everything below this line and paste it into Replit AI.
+
+
+
+
+Bug Report
+
+When connecting the Telegram bot on my self-hosted deployment, I get this error:
+
+Connection failed
+Failed to connect: Failed query: insert into "telegram_config"
+("id", "bot_token_enc", "bot_username", "enabled", "whitelist_enabled",
+"require_approval", "session_expiry_days", "max_failed_attempts",
+"lockout_minutes", "max_commands_per_minute", "max_registrations_per_day",
+"updated_at", "updated_by") values ($1, default, default, default, default,
+default, default, default, default, default, default, default, default)
+on conflict do nothing params: 1
+
+Important: this only happens on my self-hosted server. The exact same code works correctly on the Replit-hosted environment. That means this is not a code logic bug by itself — it's an environment/schema mismatch between the two databases. Please investigate and fix both the root cause and make the code resilient regardless of which environment it runs on.
+
+
+What I need fixed
+
+1. Diagnose the root cause
+
+The query uses ON CONFLICT DO NOTHING without specifying a conflict target column (or it relies on one that doesn't exist on the self-hosted DB). This requires telegram_config to have a unique or primary key constraint on whichever column the upsert logic intends to deduplicate on (most likely id, since this is meant to be a single-row config table).
+
+Please check:
+
+
+Does the self-hosted database actually have the telegram_config table created with a PRIMARY KEY on id (or whatever unique constraint the ORM/query builder expects)?
+Did all migrations run successfully on the self-hosted DB? Compare migration history/state between the Replit DB and the self-hosted DB.
+Is the self-hosted DB possibly running an older schema version where this table was created before a later migration added the constraint?
+
+
+2. Fix the migration / schema
+
+Make sure the migration that creates telegram_config explicitly defines it as a single-row config table with a safe upsert target, for example:
+
+sqlCREATE TABLE IF NOT EXISTS telegram_config (
+  id                       INTEGER PRIMARY KEY DEFAULT 1,
+  bot_token_enc            TEXT,
+  bot_username             VARCHAR(100),
+  enabled                  BOOLEAN NOT NULL DEFAULT true,
+  whitelist_enabled        BOOLEAN NOT NULL DEFAULT false,
+  require_approval         BOOLEAN NOT NULL DEFAULT true,
+  session_expiry_days      INTEGER NOT NULL DEFAULT 30,
+  max_failed_attempts      INTEGER NOT NULL DEFAULT 5,
+  lockout_minutes          INTEGER NOT NULL DEFAULT 60,
+  max_commands_per_minute  INTEGER NOT NULL DEFAULT 10,
+  max_registrations_per_day INTEGER NOT NULL DEFAULT 3,
+  updated_at               TIMESTAMPTZ DEFAULT NOW(),
+  updated_by               VARCHAR(100),
+  CONSTRAINT telegram_config_singleton CHECK (id = 1)
+);
+
+Using a fixed id = 1 singleton pattern guarantees there is always exactly one config row and the conflict target is unambiguous. Update the upsert query to be explicit:
+
+sqlINSERT INTO telegram_config (id, bot_token_enc, updated_at, updated_by)
+VALUES (1, $1, NOW(), $2)
+ON CONFLICT (id) DO UPDATE
+SET bot_token_enc = EXCLUDED.bot_token_enc,
+    updated_at = EXCLUDED.updated_at,
+    updated_by = EXCLUDED.updated_by;
+
+Note it should be ON CONFLICT (id) DO UPDATE, not DO NOTHING — otherwise saving a new token from the Settings page will silently fail to update the existing row, which may be a second hidden bug here.
+
+3. Add a startup migration check
+
+On server boot, before starting the bot, verify the telegram_config table exists and has the expected columns/constraints. If a self-hosted deployment is missing a migration, log a clear, loud error like:
+
+[STARTUP ERROR] telegram_config table is missing required constraints.
+Please run: pnpm run db:migrate
+
+instead of letting it fail silently or only on first bot-connect attempt.
+
+4. Add a one-time repair migration for existing self-hosted databases
+
+Since this self-hosted database already exists and may have the table in a broken state, write a migration that:
+
+
+Checks if telegram_config exists without a primary key / unique constraint on id.
+If so, adds the missing constraint safely (handling the case where duplicate rows might already exist — keep only the most recently updated row if there are duplicates).
+
+
+sql-- Example repair migration
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.table_constraints
+    WHERE table_name = 'telegram_config' AND constraint_type = 'PRIMARY KEY'
+  ) THEN
+    -- Keep only the latest row if duplicates exist
+    DELETE FROM telegram_config a USING telegram_config b
+    WHERE a.id < b.id;
+    ALTER TABLE telegram_config ADD PRIMARY KEY (id);
+  END IF;
+END $$;
+
+5. Confirm fix works on both environments
+
+After applying the fix, please confirm:
+
+
+Running migrations fresh on a new self-hosted DB creates telegram_config correctly.
+Saving a bot token from the Settings page works without the "Connection failed" error.
+Re-saving/rotating the token updates the existing row instead of erroring or creating a duplicate.
+The Replit-hosted environment continues to work as before (no regression).

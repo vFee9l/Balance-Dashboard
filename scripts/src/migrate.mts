@@ -16,10 +16,76 @@ if (!process.env["DATABASE_URL"]) {
 const client = new Client({ connectionString: process.env["DATABASE_URL"] });
 
 const migrations: Array<{ label: string; sql: string }> = [
-  // ── telegram_config ─────────────────────────────────────────────────────────
+  // ── telegram_config: create from scratch (new installs) ─────────────────────
+  // Uses INTEGER PRIMARY KEY, not serial, so the PK constraint is always explicit.
+  {
+    label: "telegram_config: create table with full schema",
+    sql: `
+      CREATE TABLE IF NOT EXISTS telegram_config (
+        id                        integer PRIMARY KEY DEFAULT 1,
+        bot_token_enc             text        NOT NULL DEFAULT '',
+        bot_username              varchar(100),
+        enabled                   boolean     NOT NULL DEFAULT true,
+        whitelist_enabled         boolean     NOT NULL DEFAULT false,
+        require_approval          boolean     NOT NULL DEFAULT true,
+        session_expiry_days       integer     NOT NULL DEFAULT 30,
+        max_failed_attempts       integer     NOT NULL DEFAULT 5,
+        lockout_minutes           integer     NOT NULL DEFAULT 60,
+        max_commands_per_minute   integer     NOT NULL DEFAULT 10,
+        max_registrations_per_day integer     NOT NULL DEFAULT 3,
+        updated_at                timestamptz          DEFAULT NOW(),
+        updated_by                varchar(100),
+        CONSTRAINT telegram_config_singleton CHECK (id = 1)
+      )
+    `,
+  },
+
+  // ── telegram_config: repair PRIMARY KEY on existing installs ─────────────────
+  // Old drizzle-kit migrations may have created the table without a PK, which
+  // causes ON CONFLICT (id) to fail with "no unique or exclusion constraint".
+  {
+    label: "telegram_config: repair — ensure PRIMARY KEY on id",
+    sql: `
+      DO $$ BEGIN
+        IF NOT EXISTS (
+          SELECT 1 FROM information_schema.table_constraints
+          WHERE table_name = 'telegram_config' AND constraint_type = 'PRIMARY KEY'
+        ) THEN
+          -- Remove duplicate rows first (keep the one with the largest id value)
+          DELETE FROM telegram_config a
+          USING telegram_config b
+          WHERE a.ctid < b.ctid AND a.id = b.id;
+          -- Drop the old serial sequence default if present
+          ALTER TABLE telegram_config ALTER COLUMN id DROP DEFAULT;
+          -- Add the primary key
+          ALTER TABLE telegram_config ADD PRIMARY KEY (id);
+          RAISE NOTICE 'Added PRIMARY KEY to telegram_config.id';
+        END IF;
+      END $$
+    `,
+  },
+
+  // ── telegram_config: add singleton CHECK constraint if missing ───────────────
+  {
+    label: "telegram_config: ensure singleton CHECK constraint",
+    sql: `
+      DO $$ BEGIN
+        IF NOT EXISTS (
+          SELECT 1 FROM information_schema.table_constraints
+          WHERE table_name = 'telegram_config'
+            AND constraint_name = 'telegram_config_singleton'
+        ) THEN
+          ALTER TABLE telegram_config
+            ADD CONSTRAINT telegram_config_singleton CHECK (id = 1);
+        END IF;
+      END $$
+    `,
+  },
+
+  // ── telegram_config: column additions ────────────────────────────────────────
   {
     label: "telegram_config: add bot_token_enc column",
-    sql: `ALTER TABLE IF EXISTS telegram_config ADD COLUMN IF NOT EXISTS bot_token_enc text NOT NULL DEFAULT ''`,
+    sql: `ALTER TABLE telegram_config ADD COLUMN IF NOT EXISTS bot_token_enc text NOT NULL DEFAULT ''`,
   },
   {
     label: "telegram_config: drop legacy bot_token column",
@@ -27,7 +93,7 @@ const migrations: Array<{ label: string; sql: string }> = [
   },
   {
     label: "telegram_config: add whitelist_enabled",
-    sql: `ALTER TABLE IF EXISTS telegram_config ADD COLUMN IF NOT EXISTS whitelist_enabled boolean NOT NULL DEFAULT false`,
+    sql: `ALTER TABLE telegram_config ADD COLUMN IF NOT EXISTS whitelist_enabled boolean NOT NULL DEFAULT false`,
   },
   {
     label: "telegram_config: fix whitelist_enabled type (non-boolean → boolean)",
@@ -48,31 +114,31 @@ const migrations: Array<{ label: string; sql: string }> = [
   },
   {
     label: "telegram_config: add require_approval",
-    sql: `ALTER TABLE IF EXISTS telegram_config ADD COLUMN IF NOT EXISTS require_approval boolean NOT NULL DEFAULT true`,
+    sql: `ALTER TABLE telegram_config ADD COLUMN IF NOT EXISTS require_approval boolean NOT NULL DEFAULT true`,
   },
   {
     label: "telegram_config: add session_expiry_days",
-    sql: `ALTER TABLE IF EXISTS telegram_config ADD COLUMN IF NOT EXISTS session_expiry_days integer NOT NULL DEFAULT 30`,
+    sql: `ALTER TABLE telegram_config ADD COLUMN IF NOT EXISTS session_expiry_days integer NOT NULL DEFAULT 30`,
   },
   {
     label: "telegram_config: add max_failed_attempts",
-    sql: `ALTER TABLE IF EXISTS telegram_config ADD COLUMN IF NOT EXISTS max_failed_attempts integer NOT NULL DEFAULT 5`,
+    sql: `ALTER TABLE telegram_config ADD COLUMN IF NOT EXISTS max_failed_attempts integer NOT NULL DEFAULT 5`,
   },
   {
     label: "telegram_config: add lockout_minutes",
-    sql: `ALTER TABLE IF EXISTS telegram_config ADD COLUMN IF NOT EXISTS lockout_minutes integer NOT NULL DEFAULT 60`,
+    sql: `ALTER TABLE telegram_config ADD COLUMN IF NOT EXISTS lockout_minutes integer NOT NULL DEFAULT 60`,
   },
   {
     label: "telegram_config: add max_commands_per_minute",
-    sql: `ALTER TABLE IF EXISTS telegram_config ADD COLUMN IF NOT EXISTS max_commands_per_minute integer NOT NULL DEFAULT 10`,
+    sql: `ALTER TABLE telegram_config ADD COLUMN IF NOT EXISTS max_commands_per_minute integer NOT NULL DEFAULT 10`,
   },
   {
     label: "telegram_config: add max_registrations_per_day",
-    sql: `ALTER TABLE IF EXISTS telegram_config ADD COLUMN IF NOT EXISTS max_registrations_per_day integer NOT NULL DEFAULT 3`,
+    sql: `ALTER TABLE telegram_config ADD COLUMN IF NOT EXISTS max_registrations_per_day integer NOT NULL DEFAULT 3`,
   },
   {
     label: "telegram_config: add updated_by",
-    sql: `ALTER TABLE IF EXISTS telegram_config ADD COLUMN IF NOT EXISTS updated_by varchar(100)`,
+    sql: `ALTER TABLE telegram_config ADD COLUMN IF NOT EXISTS updated_by varchar(100)`,
   },
 
   // ── telegram_users ───────────────────────────────────────────────────────────
@@ -114,14 +180,14 @@ const migrations: Array<{ label: string; sql: string }> = [
     label: "create telegram_audit_log table",
     sql: `
       CREATE TABLE IF NOT EXISTS telegram_audit_log (
-        id        bigserial PRIMARY KEY,
+        id          bigserial   PRIMARY KEY,
         telegram_id bigint,
-        username  varchar(100),
-        command   varchar(200),
-        args      text,
-        result    varchar(50),
-        detail    text,
-        created_at timestamptz NOT NULL DEFAULT NOW()
+        username    varchar(100),
+        command     varchar(200),
+        args        text,
+        result      varchar(50),
+        detail      text,
+        created_at  timestamptz NOT NULL DEFAULT NOW()
       )
     `,
   },
@@ -153,7 +219,7 @@ const migrations: Array<{ label: string; sql: string }> = [
     label: "create telegram_whitelist table",
     sql: `
       CREATE TABLE IF NOT EXISTS telegram_whitelist (
-        id                serial PRIMARY KEY,
+        id                serial      PRIMARY KEY,
         telegram_username varchar(100) UNIQUE NOT NULL,
         added_by          varchar(100),
         added_at          timestamptz DEFAULT NOW(),
@@ -177,11 +243,10 @@ async function main(): Promise<void> {
       applied++;
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
-      // Ignore "already exists" type errors — they mean the migration already ran
+      // Ignore "already exists" — migration already ran on this DB.
       if (
         msg.includes("already exists") ||
-        msg.includes("duplicate column") ||
-        msg.includes("does not exist")
+        msg.includes("duplicate column")
       ) {
         console.log(`  –  ${label} (skipped: ${msg.split("\n")[0]})`);
         skipped++;
