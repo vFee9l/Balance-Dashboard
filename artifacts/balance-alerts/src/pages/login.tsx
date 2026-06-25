@@ -64,6 +64,16 @@ export default function LoginPage({ onSuccess, initialStep }: LoginPageProps) {
     }
   };
 
+  // ── Back to password step ─────────────────────────────────────────────────────
+  const handleBack = async () => {
+    // Clear server-side pending session
+    await fetch("/api/auth/logout", { method: "POST", credentials: "include" }).catch(() => {});
+    setStep("password");
+    setTotpCode("");
+    setQrDataUrl(null);
+    setManualKey(null);
+  };
+
   // ── Step 2a: TOTP setup confirmation ─────────────────────────────────────────
   const handleTotpSetup = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -204,6 +214,9 @@ export default function LoginPage({ onSuccess, initialStep }: LoginPageProps) {
                     ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Confirming…</>
                     : <><ShieldCheck className="mr-2 h-4 w-4" /> Confirm &amp; Activate</>}
                 </Button>
+                <Button type="button" variant="ghost" className="w-full text-muted-foreground" onClick={handleBack} disabled={isLoading}>
+                  ← Back to Login
+                </Button>
               </form>
             </CardContent>
           </Card>
@@ -238,6 +251,9 @@ export default function LoginPage({ onSuccess, initialStep }: LoginPageProps) {
                   {isLoading
                     ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Verifying…</>
                     : <><KeyRound className="mr-2 h-4 w-4" /> Authorize Access</>}
+                </Button>
+                <Button type="button" variant="ghost" className="w-full text-muted-foreground" onClick={handleBack} disabled={isLoading}>
+                  ← Back to Login
                 </Button>
                 <p className="text-center text-xs text-muted-foreground">
                   Lost your authenticator?{" "}
