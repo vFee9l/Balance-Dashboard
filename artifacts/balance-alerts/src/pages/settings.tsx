@@ -477,6 +477,13 @@ export default function SettingsPage() {
                   <FormDescription>Public Google Sheet with client contacts. Must be shared with "Anyone with the link can view".</FormDescription>
                 </FormItem>
               )} />
+              <FormField control={form.control} name="excludedOrgs" render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Excluded Organizations</FormLabel>
+                  <FormControl><Input className="bg-background font-mono text-sm" {...field} value={field.value || ""} placeholder="e.g. NCB, TestOrg" /></FormControl>
+                  <FormDescription>Comma-separated organization names to hide from the dashboard entirely (must match the org name exactly as it appears in Grafana). Leave blank to show all.</FormDescription>
+                </FormItem>
+              )} />
             </CardContent>
           </Card>
 

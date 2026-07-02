@@ -63,4 +63,9 @@ export interface Settings {
   emergencyEmailToCols?: string | null;
   /** @nullable */
   emergencyEmailCcCols?: string | null;
+  /**
+     * Comma-separated list of organization names to hide from the dashboard.
+     * @nullable
+     */
+  excludedOrgs?: string | null;
 }

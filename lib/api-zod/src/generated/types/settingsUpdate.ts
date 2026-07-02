@@ -41,4 +41,5 @@ export interface SettingsUpdate {
   emergencySmsCols?: string;
   emergencyEmailToCols?: string;
   emergencyEmailCcCols?: string;
+  excludedOrgs?: string;
 }

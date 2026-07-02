@@ -156,7 +156,8 @@ export const GetSettingsResponse = zod.object({
   "criticalEmailCcCols": zod.string().nullish(),
   "emergencySmsCols": zod.string().nullish(),
   "emergencyEmailToCols": zod.string().nullish(),
-  "emergencyEmailCcCols": zod.string().nullish()
+  "emergencyEmailCcCols": zod.string().nullish(),
+  "excludedOrgs": zod.string().nullish().describe('Comma-separated list of organization names to hide from the dashboard.')
 })
 
 
@@ -197,7 +198,8 @@ export const UpdateSettingsBody = zod.object({
   "criticalEmailCcCols": zod.string().optional(),
   "emergencySmsCols": zod.string().optional(),
   "emergencyEmailToCols": zod.string().optional(),
-  "emergencyEmailCcCols": zod.string().optional()
+  "emergencyEmailCcCols": zod.string().optional(),
+  "excludedOrgs": zod.string().optional()
 })
 
 export const UpdateSettingsResponse = zod.object({
@@ -234,7 +236,8 @@ export const UpdateSettingsResponse = zod.object({
   "criticalEmailCcCols": zod.string().nullish(),
   "emergencySmsCols": zod.string().nullish(),
   "emergencyEmailToCols": zod.string().nullish(),
-  "emergencyEmailCcCols": zod.string().nullish()
+  "emergencyEmailCcCols": zod.string().nullish(),
+  "excludedOrgs": zod.string().nullish().describe('Comma-separated list of organization names to hide from the dashboard.')
 })
 
 

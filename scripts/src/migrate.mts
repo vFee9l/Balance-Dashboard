@@ -286,6 +286,12 @@ const migrations: Array<{ label: string; sql: string }> = [
     label: "app_login_audit: index on created_at",
     sql: `CREATE INDEX IF NOT EXISTS idx_app_login_audit_time ON app_login_audit(created_at DESC)`,
   },
+
+  // ── settings: add excluded_orgs column ───────────────────────────────────────
+  {
+    label: "settings: add excluded_orgs column",
+    sql: `ALTER TABLE settings ADD COLUMN IF NOT EXISTS excluded_orgs text`,
+  },
 ];
 
 async function main(): Promise<void> {

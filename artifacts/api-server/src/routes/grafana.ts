@@ -663,7 +663,16 @@ router.get("/grafana/balances", async (req, res): Promise<void> => {
   const thresholdManager = settings?.thresholdManager ?? 15;
   const thresholdMd = settings?.thresholdMd ?? 5;
 
-  const rawBalances = await fetchGrafanaBalances();
+  const excludedOrgsSet = new Set(
+    (settings?.excludedOrgs ?? "")
+      .split(",")
+      .map((o) => o.trim().toLowerCase())
+      .filter((o) => o.length > 0)
+  );
+
+  const rawBalances = (await fetchGrafanaBalances()).filter(
+    (b) => !excludedOrgsSet.has(b.metric.trim().toLowerCase())
+  );
 
   const yesterdayDate = new Date(Date.now() - 86400_000).toISOString().slice(0, 10);
 

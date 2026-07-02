@@ -502,6 +502,9 @@ components:
           type: ["string", "null"]
         emergencyEmailCcCols:
           type: ["string", "null"]
+        excludedOrgs:
+          type: ["string", "null"]
+          description: Comma-separated list of organization names to hide from the dashboard.
 
     SettingsUpdate:
       type: object
@@ -573,6 +576,8 @@ components:
         emergencyEmailToCols:
           type: string
         emergencyEmailCcCols:
+          type: string
+        excludedOrgs:
           type: string
 
     OtpInput:

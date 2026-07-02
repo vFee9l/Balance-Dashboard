@@ -111,6 +111,11 @@ export interface Settings {
   emergencyEmailToCols?: string | null;
   /** @nullable */
   emergencyEmailCcCols?: string | null;
+  /**
+     * Comma-separated list of organization names to hide from the dashboard.
+     * @nullable
+     */
+  excludedOrgs?: string | null;
 }
 
 export interface SettingsUpdate {
@@ -148,6 +153,7 @@ export interface SettingsUpdate {
   emergencySmsCols?: string;
   emergencyEmailToCols?: string;
   emergencyEmailCcCols?: string;
+  excludedOrgs?: string;
 }
 
 export interface OtpInput {

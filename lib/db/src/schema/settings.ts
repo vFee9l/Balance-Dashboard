@@ -38,6 +38,7 @@ export const settingsTable = pgTable("settings", {
   emergencySmsCols: text("emergency_sms_cols").default("F,H,J,L"),
   emergencyEmailToCols: text("emergency_email_to_cols").default("M"),
   emergencyEmailCcCols: text("emergency_email_cc_cols").default("G,I,K"),
+  excludedOrgs: text("excluded_orgs"),
 });
 
 export const insertSettingsSchema = createInsertSchema(settingsTable).omit({ id: true });
