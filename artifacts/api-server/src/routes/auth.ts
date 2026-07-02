@@ -85,7 +85,16 @@ router.post("/auth/login", async (req, res): Promise<void> => {
 
   const { user } = result;
 
-  // Store pending state — TOTP step still required
+  // If TOTP is fully disabled for this user, log in directly
+  if (!user.totpEnabled && !user.mustSetupTotp) {
+    await issueSession(req, user);
+    await audit(user.username, "success", ip);
+    await logSessionToDb(req, user.id);
+    res.json({ ok: true, role: user.role, username: user.username });
+    return;
+  }
+
+  // TOTP required — store pending state
   req.session.pendingUserId = user.id;
   req.session.pendingNeedsSetup = user.mustSetupTotp;
 

@@ -50,7 +50,9 @@ export default function LoginPage({ onSuccess, initialStep }: LoginPageProps) {
     setIsLoading(true);
     try {
       const data = await api("/api/auth/login", { identifier, password });
-      if (data["step"] === "totp_setup") {
+      if (data["ok"] === true) {
+        onSuccess();
+      } else if (data["step"] === "totp_setup") {
         setQrDataUrl((data["qrDataUrl"] as string) ?? null);
         setManualKey((data["manualKey"] as string) ?? null);
         setStep("totp_setup");
