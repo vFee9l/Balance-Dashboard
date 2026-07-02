@@ -1064,7 +1064,16 @@ export async function runAlertChecks(): Promise<{
     }
   }
 
-  const rawBalances = await fetchGrafanaBalances();
+  const excludedOrgsSet = new Set(
+    (settings?.excludedOrgs ?? "")
+      .split(",")
+      .map((o) => o.trim().toLowerCase())
+      .filter((o) => o.length > 0)
+  );
+
+  const rawBalances = (await fetchGrafanaBalances()).filter(
+    (b) => !excludedOrgsSet.has(b.metric.trim().toLowerCase())
+  );
 
   for (const b of rawBalances) {
     // Mirror the dashboard's logic exactly: prefer monthly avg, fall back to 7-day recent rate.
@@ -1168,7 +1177,16 @@ export async function refreshBalanceCache(): Promise<void> {
   const thresholdManager = settings?.thresholdManager ?? 15;
   const thresholdMd = settings?.thresholdMd ?? 5;
 
-  const rawBalances = await fetchGrafanaBalances();
+  const excludedOrgsSet = new Set(
+    (settings?.excludedOrgs ?? "")
+      .split(",")
+      .map((o) => o.trim().toLowerCase())
+      .filter((o) => o.length > 0)
+  );
+
+  const rawBalances = (await fetchGrafanaBalances()).filter(
+    (b) => !excludedOrgsSet.has(b.metric.trim().toLowerCase())
+  );
 
   const { updateBalanceCache } = await import("../lib/balanceCache.js");
   updateBalanceCache(
