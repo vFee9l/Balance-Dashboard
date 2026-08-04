@@ -478,6 +478,8 @@ components:
           type: integer
         thresholdMd:
           type: integer
+        thresholdImmediate:
+          type: integer
         totpEnabled:
           type: boolean
         totpSecret:
@@ -501,6 +503,12 @@ components:
         emergencyEmailToCols:
           type: ["string", "null"]
         emergencyEmailCcCols:
+          type: ["string", "null"]
+        immediateSmsCols:
+          type: ["string", "null"]
+        immediateEmailToCols:
+          type: ["string", "null"]
+        immediateEmailCcCols:
           type: ["string", "null"]
         excludedOrgs:
           type: ["string", "null"]
@@ -553,6 +561,8 @@ components:
           type: integer
         thresholdMd:
           type: integer
+        thresholdImmediate:
+          type: integer
         totpEnabled:
           type: boolean
         totpSecret:
@@ -576,6 +586,12 @@ components:
         emergencyEmailToCols:
           type: string
         emergencyEmailCcCols:
+          type: string
+        immediateSmsCols:
+          type: string
+        immediateEmailToCols:
+          type: string
+        immediateEmailCcCols:
           type: string
         excludedOrgs:
           type: string

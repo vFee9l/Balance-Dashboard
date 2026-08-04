@@ -26,6 +26,7 @@ export const settingsTable = pgTable("settings", {
   thresholdStaff: integer("threshold_staff").notNull().default(20),
   thresholdManager: integer("threshold_manager").notNull().default(15),
   thresholdMd: integer("threshold_md").notNull().default(5),
+  thresholdImmediate: integer("threshold_immediate").notNull().default(1),
   totpSecret: text("totp_secret"),
   totpEnabled: boolean("totp_enabled").notNull().default(false),
   googleSheetUrl: text("google_sheet_url"),
@@ -38,6 +39,9 @@ export const settingsTable = pgTable("settings", {
   emergencySmsCols: text("emergency_sms_cols").default("F,H,J,L"),
   emergencyEmailToCols: text("emergency_email_to_cols").default("M"),
   emergencyEmailCcCols: text("emergency_email_cc_cols").default("G,I,K"),
+  immediateSmsCols: text("immediate_sms_cols").default("F,H,J,L"),
+  immediateEmailToCols: text("immediate_email_to_cols").default("M"),
+  immediateEmailCcCols: text("immediate_email_cc_cols").default("G,I,K"),
   excludedOrgs: text("excluded_orgs"),
 });
 

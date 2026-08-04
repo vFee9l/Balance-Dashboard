@@ -145,6 +145,7 @@ export const GetSettingsResponse = zod.object({
   "thresholdStaff": zod.number(),
   "thresholdManager": zod.number(),
   "thresholdMd": zod.number(),
+  "thresholdImmediate": zod.number().optional(),
   "totpEnabled": zod.boolean(),
   "totpSecret": zod.string().nullish(),
   "googleSheetUrl": zod.string().nullish(),
@@ -157,6 +158,9 @@ export const GetSettingsResponse = zod.object({
   "emergencySmsCols": zod.string().nullish(),
   "emergencyEmailToCols": zod.string().nullish(),
   "emergencyEmailCcCols": zod.string().nullish(),
+  "immediateSmsCols": zod.string().nullish(),
+  "immediateEmailToCols": zod.string().nullish(),
+  "immediateEmailCcCols": zod.string().nullish(),
   "excludedOrgs": zod.string().nullish().describe('Comma-separated list of organization names to hide from the dashboard.')
 })
 
@@ -187,6 +191,7 @@ export const UpdateSettingsBody = zod.object({
   "thresholdStaff": zod.number().optional(),
   "thresholdManager": zod.number().optional(),
   "thresholdMd": zod.number().optional(),
+  "thresholdImmediate": zod.number().optional(),
   "totpEnabled": zod.boolean().optional(),
   "totpSecret": zod.string().optional(),
   "googleSheetUrl": zod.string().optional(),
@@ -199,6 +204,9 @@ export const UpdateSettingsBody = zod.object({
   "emergencySmsCols": zod.string().optional(),
   "emergencyEmailToCols": zod.string().optional(),
   "emergencyEmailCcCols": zod.string().optional(),
+  "immediateSmsCols": zod.string().optional(),
+  "immediateEmailToCols": zod.string().optional(),
+  "immediateEmailCcCols": zod.string().optional(),
   "excludedOrgs": zod.string().optional()
 })
 
@@ -225,6 +233,7 @@ export const UpdateSettingsResponse = zod.object({
   "thresholdStaff": zod.number(),
   "thresholdManager": zod.number(),
   "thresholdMd": zod.number(),
+  "thresholdImmediate": zod.number().optional(),
   "totpEnabled": zod.boolean(),
   "totpSecret": zod.string().nullish(),
   "googleSheetUrl": zod.string().nullish(),
@@ -237,6 +246,9 @@ export const UpdateSettingsResponse = zod.object({
   "emergencySmsCols": zod.string().nullish(),
   "emergencyEmailToCols": zod.string().nullish(),
   "emergencyEmailCcCols": zod.string().nullish(),
+  "immediateSmsCols": zod.string().nullish(),
+  "immediateEmailToCols": zod.string().nullish(),
+  "immediateEmailCcCols": zod.string().nullish(),
   "excludedOrgs": zod.string().nullish().describe('Comma-separated list of organization names to hide from the dashboard.')
 })
 

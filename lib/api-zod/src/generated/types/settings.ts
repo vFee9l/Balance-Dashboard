@@ -40,6 +40,7 @@ export interface Settings {
   thresholdStaff: number;
   thresholdManager: number;
   thresholdMd: number;
+  thresholdImmediate?: number;
   totpEnabled: boolean;
   /** @nullable */
   totpSecret?: string | null;
@@ -63,6 +64,12 @@ export interface Settings {
   emergencyEmailToCols?: string | null;
   /** @nullable */
   emergencyEmailCcCols?: string | null;
+  /** @nullable */
+  immediateSmsCols?: string | null;
+  /** @nullable */
+  immediateEmailToCols?: string | null;
+  /** @nullable */
+  immediateEmailCcCols?: string | null;
   /**
      * Comma-separated list of organization names to hide from the dashboard.
      * @nullable

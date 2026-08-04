@@ -29,6 +29,7 @@ export interface SettingsUpdate {
   thresholdStaff?: number;
   thresholdManager?: number;
   thresholdMd?: number;
+  thresholdImmediate?: number;
   totpEnabled?: boolean;
   totpSecret?: string;
   googleSheetUrl?: string;
@@ -41,5 +42,8 @@ export interface SettingsUpdate {
   emergencySmsCols?: string;
   emergencyEmailToCols?: string;
   emergencyEmailCcCols?: string;
+  immediateSmsCols?: string;
+  immediateEmailToCols?: string;
+  immediateEmailCcCols?: string;
   excludedOrgs?: string;
 }

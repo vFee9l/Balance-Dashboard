@@ -315,6 +315,7 @@ export default function SettingsPage() {
       thresholdStaff: 20,
       thresholdManager: 15,
       thresholdMd: 5,
+      thresholdImmediate: 1,
       warningSmsCols: "F,H",
       warningEmailToCols: "G,I",
       warningEmailCcCols: "K",
@@ -571,6 +572,30 @@ export default function SettingsPage() {
                   )} />
                 </div>
               </div>
+              {/* Immediate Intervention */}
+              <div className="rounded-lg border border-purple-400/40 bg-purple-900/15 p-4 space-y-3">
+                <p className="text-xs font-bold uppercase tracking-wider text-purple-300">🟣 Immediate Intervention</p>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  <FormField control={form.control} name="immediateSmsCols" render={({ field }) => (
+                    <FormItem>
+                      <FormLabel className="text-xs text-muted-foreground">Send SMS to (cols)</FormLabel>
+                      <FormControl><Input className="bg-background font-mono text-sm" placeholder="F,H,J,L" {...field} value={field.value || ""} /></FormControl>
+                    </FormItem>
+                  )} />
+                  <FormField control={form.control} name="immediateEmailToCols" render={({ field }) => (
+                    <FormItem>
+                      <FormLabel className="text-xs text-muted-foreground">Email To (cols)</FormLabel>
+                      <FormControl><Input className="bg-background font-mono text-sm" placeholder="M" {...field} value={field.value || ""} /></FormControl>
+                    </FormItem>
+                  )} />
+                  <FormField control={form.control} name="immediateEmailCcCols" render={({ field }) => (
+                    <FormItem>
+                      <FormLabel className="text-xs text-muted-foreground">Email CC (cols)</FormLabel>
+                      <FormControl><Input className="bg-background font-mono text-sm" placeholder="G,I,K" {...field} value={field.value || ""} /></FormControl>
+                    </FormItem>
+                  )} />
+                </div>
+              </div>
               <p className="text-xs text-muted-foreground pt-1">
                 Default sheet layout: <span className="font-mono">F</span>=AM Mobile · <span className="font-mono">G</span>=AM Email · <span className="font-mono">H</span>=CSS Mobile · <span className="font-mono">I</span>=CSS Email · <span className="font-mono">J</span>=Manager Mobile · <span className="font-mono">K</span>=Manager Email · <span className="font-mono">L</span>=MD Mobile · <span className="font-mono">M</span>=MD Email
               </p>
@@ -629,6 +654,14 @@ export default function SettingsPage() {
                   <FormField control={form.control} name="thresholdMd" render={({ field }) => (
                     <FormItem className="bg-secondary/30 p-4 rounded-md border border-red-900/40">
                       <FormLabel className="text-red-400 font-bold tracking-wider uppercase text-xs">Emergency (MD)</FormLabel>
+                      <FormControl>
+                        <Input type="number" className="bg-background font-mono mt-2" {...field} onChange={e => field.onChange(parseInt(e.target.value))} />
+                      </FormControl>
+                    </FormItem>
+                  )} />
+                  <FormField control={form.control} name="thresholdImmediate" render={({ field }) => (
+                    <FormItem className="bg-purple-900/20 p-4 rounded-md border border-purple-400/40">
+                      <FormLabel className="text-purple-300 font-bold tracking-wider uppercase text-xs">Immediate Intervention</FormLabel>
                       <FormControl>
                         <Input type="number" className="bg-background font-mono mt-2" {...field} onChange={e => field.onChange(parseInt(e.target.value))} />
                       </FormControl>

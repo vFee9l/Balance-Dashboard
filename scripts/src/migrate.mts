@@ -292,6 +292,24 @@ const migrations: Array<{ label: string; sql: string }> = [
     label: "settings: add excluded_orgs column",
     sql: `ALTER TABLE settings ADD COLUMN IF NOT EXISTS excluded_orgs text`,
   },
+
+  // ── settings: add immediate intervention threshold + column routing ──────────
+  {
+    label: "settings: add threshold_immediate column",
+    sql: `ALTER TABLE settings ADD COLUMN IF NOT EXISTS threshold_immediate integer NOT NULL DEFAULT 1`,
+  },
+  {
+    label: "settings: add immediate_sms_cols column",
+    sql: `ALTER TABLE settings ADD COLUMN IF NOT EXISTS immediate_sms_cols text`,
+  },
+  {
+    label: "settings: add immediate_email_to_cols column",
+    sql: `ALTER TABLE settings ADD COLUMN IF NOT EXISTS immediate_email_to_cols text`,
+  },
+  {
+    label: "settings: add immediate_email_cc_cols column",
+    sql: `ALTER TABLE settings ADD COLUMN IF NOT EXISTS immediate_email_cc_cols text`,
+  },
 ];
 
 async function main(): Promise<void> {

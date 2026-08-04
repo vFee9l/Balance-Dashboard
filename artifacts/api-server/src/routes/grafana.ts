@@ -446,8 +446,10 @@ function computeSeverity(
   daysRemaining: number,
   thresholdStaff: number,
   thresholdManager: number,
-  thresholdMd: number
+  thresholdMd: number,
+  thresholdImmediate: number
 ): string {
+  if (daysRemaining < thresholdImmediate) return "immediate";
   if (daysRemaining < thresholdMd) return "emergency";
   if (daysRemaining < thresholdManager) return "critical";
   if (daysRemaining < thresholdStaff) return "warning";
@@ -662,6 +664,7 @@ router.get("/grafana/balances", async (req, res): Promise<void> => {
   const thresholdStaff = settings?.thresholdStaff ?? 20;
   const thresholdManager = settings?.thresholdManager ?? 15;
   const thresholdMd = settings?.thresholdMd ?? 5;
+  const thresholdImmediate = settings?.thresholdImmediate ?? 1;
 
   const excludedOrgsSet = new Set(
     (settings?.excludedOrgs ?? "")
@@ -690,7 +693,7 @@ router.get("/grafana/balances", async (req, res): Promise<void> => {
     const severity =
       rawDays === null
         ? "ok"
-        : computeSeverity(daysRemaining, thresholdStaff, thresholdManager, thresholdMd);
+        : computeSeverity(daysRemaining, thresholdStaff, thresholdManager, thresholdMd, thresholdImmediate);
 
     const rawDaysRecent =
       b.recentDailyConsumption > 0
@@ -996,6 +999,7 @@ export async function runAlertChecks(): Promise<{
   const thresholdStaff = settings?.thresholdStaff ?? 20;
   const thresholdManager = settings?.thresholdManager ?? 15;
   const thresholdMd = settings?.thresholdMd ?? 5;
+  const thresholdImmediate = settings?.thresholdImmediate ?? 1;
 
   // Load DB contacts as fallback (used when no sheet row matches a client).
   const dbContacts = await db.select().from(contactsTable);
@@ -1030,15 +1034,18 @@ export async function runAlertChecks(): Promise<{
 
     if (row) {
       // Use the configured column letters for this severity; fall back to sensible defaults
-      const smsCols = severity === "warning"  ? (settings?.warningSmsCols   ?? "F,H")
-                    : severity === "critical"  ? (settings?.criticalSmsCols  ?? "F,H,J")
-                    :                            (settings?.emergencySmsCols ?? "F,H,J,L");
-      const toCols  = severity === "warning"  ? (settings?.warningEmailToCols   ?? "G,I")
-                    : severity === "critical"  ? (settings?.criticalEmailToCols  ?? "K")
-                    :                            (settings?.emergencyEmailToCols ?? "M");
-      const ccCols  = severity === "warning"  ? (settings?.warningEmailCcCols   ?? "K")
-                    : severity === "critical"  ? (settings?.criticalEmailCcCols  ?? "G,I,M")
-                    :                            (settings?.emergencyEmailCcCols ?? "G,I,K");
+      const smsCols = severity === "warning"   ? (settings?.warningSmsCols    ?? "F,H")
+                    : severity === "critical"   ? (settings?.criticalSmsCols   ?? "F,H,J")
+                    : severity === "emergency"  ? (settings?.emergencySmsCols  ?? "F,H,J,L")
+                    :                             (settings?.immediateSmsCols  ?? "F,H,J,L");
+      const toCols  = severity === "warning"   ? (settings?.warningEmailToCols    ?? "G,I")
+                    : severity === "critical"   ? (settings?.criticalEmailToCols   ?? "K")
+                    : severity === "emergency"  ? (settings?.emergencyEmailToCols  ?? "M")
+                    :                             (settings?.immediateEmailToCols  ?? "M");
+      const ccCols  = severity === "warning"   ? (settings?.warningEmailCcCols    ?? "K")
+                    : severity === "critical"   ? (settings?.criticalEmailCcCols   ?? "G,I,M")
+                    : severity === "emergency"  ? (settings?.emergencyEmailCcCols  ?? "G,I,K")
+                    :                             (settings?.immediateEmailCcCols  ?? "G,I,K");
       return {
         smsNumbers: getColValues(row.rawCols, smsCols),
         toEmails:   getColValues(row.rawCols, toCols),
@@ -1055,7 +1062,13 @@ export async function runAlertChecks(): Promise<{
         ccEmails: [...dbStaffEmails, ...dbMdEmails],
         smsNumbers: [...dbStaffPhones, ...dbManagerPhones],
       };
-    } else { // emergency
+    } else if (severity === "emergency") {
+      return {
+        toEmails: dbMdEmails,
+        ccEmails: [...dbManagerEmails, ...dbStaffEmails],
+        smsNumbers: [...dbMdPhones, ...dbManagerPhones, ...dbStaffPhones],
+      };
+    } else { // immediate
       return {
         toEmails: dbMdEmails,
         ccEmails: [...dbManagerEmails, ...dbStaffEmails],
@@ -1083,7 +1096,7 @@ export async function runAlertChecks(): Promise<{
     const severity =
       rawDays === null
         ? "ok"
-        : computeSeverity(daysRemaining, thresholdStaff, thresholdManager, thresholdMd);
+        : computeSeverity(daysRemaining, thresholdStaff, thresholdManager, thresholdMd, thresholdImmediate);
 
     if (severity === "ok") {
       details.push({ metric: b.metric, daysRemaining, severity, contactsNotified: 0 });
@@ -1176,6 +1189,7 @@ export async function refreshBalanceCache(): Promise<void> {
   const thresholdStaff = settings?.thresholdStaff ?? 20;
   const thresholdManager = settings?.thresholdManager ?? 15;
   const thresholdMd = settings?.thresholdMd ?? 5;
+  const thresholdImmediate = settings?.thresholdImmediate ?? 1;
 
   const excludedOrgsSet = new Set(
     (settings?.excludedOrgs ?? "")
@@ -1194,7 +1208,7 @@ export async function refreshBalanceCache(): Promise<void> {
       const effectiveDaily = b.dailyConsumption > 0 ? b.dailyConsumption : b.recentDailyConsumption;
       const rawDays = effectiveDaily > 0 ? b.remainingBalance / effectiveDaily : null;
       const daysRemaining = rawDays === null ? -1 : Math.max(0, Math.round(rawDays * 10) / 10);
-      const severity = rawDays === null ? "ok" : computeSeverity(daysRemaining, thresholdStaff, thresholdManager, thresholdMd);
+      const severity = rawDays === null ? "ok" : computeSeverity(daysRemaining, thresholdStaff, thresholdManager, thresholdMd, thresholdImmediate);
       return { metric: b.metric, remainingBalance: b.remainingBalance, daysRemaining, severity, financeId: b.financeId ?? null };
     })
   );

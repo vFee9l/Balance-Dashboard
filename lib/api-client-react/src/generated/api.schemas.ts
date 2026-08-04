@@ -88,6 +88,7 @@ export interface Settings {
   thresholdStaff: number;
   thresholdManager: number;
   thresholdMd: number;
+  thresholdImmediate?: number;
   totpEnabled: boolean;
   /** @nullable */
   totpSecret?: string | null;
@@ -111,6 +112,12 @@ export interface Settings {
   emergencyEmailToCols?: string | null;
   /** @nullable */
   emergencyEmailCcCols?: string | null;
+  /** @nullable */
+  immediateSmsCols?: string | null;
+  /** @nullable */
+  immediateEmailToCols?: string | null;
+  /** @nullable */
+  immediateEmailCcCols?: string | null;
   /**
      * Comma-separated list of organization names to hide from the dashboard.
      * @nullable
@@ -141,6 +148,7 @@ export interface SettingsUpdate {
   thresholdStaff?: number;
   thresholdManager?: number;
   thresholdMd?: number;
+  thresholdImmediate?: number;
   totpEnabled?: boolean;
   totpSecret?: string;
   googleSheetUrl?: string;
@@ -153,6 +161,9 @@ export interface SettingsUpdate {
   emergencySmsCols?: string;
   emergencyEmailToCols?: string;
   emergencyEmailCcCols?: string;
+  immediateSmsCols?: string;
+  immediateEmailToCols?: string;
+  immediateEmailCcCols?: string;
   excludedOrgs?: string;
 }
 

@@ -175,6 +175,7 @@ export default function Dashboard() {
       case "warning": return "bg-yellow-500/10 text-yellow-500 border-yellow-500/20";
       case "critical": return "bg-red-500/10 text-red-500 border-red-500/20";
       case "emergency": return "bg-red-900/40 text-red-400 border-red-500/40 animate-pulse";
+      case "immediate": return "bg-purple-900/60 text-purple-200 border-purple-400/60 animate-pulse";
       default: return "bg-gray-500/10 text-gray-500 border-gray-500/20";
     }
   };
@@ -185,26 +186,28 @@ export default function Dashboard() {
       case "warning": return <AlertCircle className="w-4 h-4 mr-1 inline" />;
       case "critical": return <ShieldAlert className="w-4 h-4 mr-1 inline" />;
       case "emergency": return <Activity className="w-4 h-4 mr-1 inline" />;
+      case "immediate": return <ShieldAlert className="w-4 h-4 mr-1 inline" />;
       default: return null;
     }
   };
 
   // Live severity counts from the actual balance data (not historical)
   const liveCounts = useMemo(() => {
-    if (!balances) return { warning: 0, critical: 0, emergency: 0 };
+    if (!balances) return { warning: 0, critical: 0, emergency: 0, immediate: 0 };
     return balances.reduce(
-      (acc: { warning: number; critical: number; emergency: number }, b: ClientBalance) => {
+      (acc: { warning: number; critical: number; emergency: number; immediate: number }, b: ClientBalance) => {
         const s = b.severity.toLowerCase();
         if (s === "warning") acc.warning++;
         else if (s === "critical") acc.critical++;
         else if (s === "emergency") acc.emergency++;
+        else if (s === "immediate") acc.immediate++;
         return acc;
       },
-      { warning: 0, critical: 0, emergency: 0 }
+      { warning: 0, critical: 0, emergency: 0, immediate: 0 }
     );
   }, [balances]);
 
-  const SEVERITY_ORDER: Record<string, number> = { ok: 0, warning: 1, critical: 2, emergency: 3 };
+  const SEVERITY_ORDER: Record<string, number> = { ok: 0, warning: 1, critical: 2, emergency: 3, immediate: 4 };
 
   // Filtered + sorted rows
   const filteredBalances = useMemo(() => {
@@ -383,6 +386,24 @@ export default function Dashboard() {
         </Card>
       </div>
 
+      {/* Immediate Intervention banner — shown only when there are affected clients */}
+      {(liveCounts.immediate > 0) && (
+        <Card
+          className={`bg-purple-900/30 backdrop-blur cursor-pointer transition-all hover:bg-purple-900/40 border-purple-400/50 hover:border-purple-400/80 animate-pulse ${statusFilter === "immediate" ? "ring-2 ring-purple-400" : ""}`}
+          onClick={() => setStatusFilter(statusFilter === "immediate" ? "all" : "immediate")}
+          title="Filter: Immediate Intervention clients"
+        >
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium text-purple-200">Immediate Intervention Required</CardTitle>
+            <ShieldAlert className="h-4 w-4 text-purple-300" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold text-purple-200">{liveCounts.immediate}</div>
+            <p className="text-xs text-purple-300/70 mt-1">&lt; {settings?.thresholdImmediate ?? 1} days remaining — act now</p>
+          </CardContent>
+        </Card>
+      )}
+
       {/* Client balances table */}
       <Card className="bg-card/50 backdrop-blur">
         <CardHeader>
@@ -412,6 +433,7 @@ export default function Dashboard() {
                     <SelectItem value="warning">Warning</SelectItem>
                     <SelectItem value="critical">Critical</SelectItem>
                     <SelectItem value="emergency">Emergency</SelectItem>
+                    <SelectItem value="immediate">Immediate Intervention</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
