@@ -42,6 +42,9 @@ export const settingsTable = pgTable("settings", {
   immediateSmsCols: text("immediate_sms_cols").default("F,H,J,L"),
   immediateEmailToCols: text("immediate_email_to_cols").default("M"),
   immediateEmailCcCols: text("immediate_email_cc_cols").default("G,I,K"),
+  fallbackSmsNumbers: text("fallback_sms_numbers"),
+  fallbackEmailTo: text("fallback_email_to"),
+  fallbackEmailCc: text("fallback_email_cc"),
   excludedOrgs: text("excluded_orgs"),
 });
 

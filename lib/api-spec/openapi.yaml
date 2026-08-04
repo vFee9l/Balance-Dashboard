@@ -510,6 +510,15 @@ components:
           type: ["string", "null"]
         immediateEmailCcCols:
           type: ["string", "null"]
+        fallbackSmsNumbers:
+          type: ["string", "null"]
+          description: Comma-separated phone numbers to SMS when a client's Finance ID is not found in the sheet.
+        fallbackEmailTo:
+          type: ["string", "null"]
+          description: Comma-separated email addresses for To field when Finance ID is not found in the sheet.
+        fallbackEmailCc:
+          type: ["string", "null"]
+          description: Comma-separated email addresses for CC field when Finance ID is not found in the sheet.
         excludedOrgs:
           type: ["string", "null"]
           description: Comma-separated list of organization names to hide from the dashboard.
@@ -592,6 +601,12 @@ components:
         immediateEmailToCols:
           type: string
         immediateEmailCcCols:
+          type: string
+        fallbackSmsNumbers:
+          type: string
+        fallbackEmailTo:
+          type: string
+        fallbackEmailCc:
           type: string
         excludedOrgs:
           type: string

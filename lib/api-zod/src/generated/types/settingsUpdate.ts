@@ -45,5 +45,8 @@ export interface SettingsUpdate {
   immediateSmsCols?: string;
   immediateEmailToCols?: string;
   immediateEmailCcCols?: string;
+  fallbackSmsNumbers?: string;
+  fallbackEmailTo?: string;
+  fallbackEmailCc?: string;
   excludedOrgs?: string;
 }

@@ -161,6 +161,9 @@ export const GetSettingsResponse = zod.object({
   "immediateSmsCols": zod.string().nullish(),
   "immediateEmailToCols": zod.string().nullish(),
   "immediateEmailCcCols": zod.string().nullish(),
+  "fallbackSmsNumbers": zod.string().nullish().describe('Comma-separated phone numbers to SMS when a client\'s Finance ID is not found in the sheet.'),
+  "fallbackEmailTo": zod.string().nullish().describe('Comma-separated email addresses for To field when Finance ID is not found in the sheet.'),
+  "fallbackEmailCc": zod.string().nullish().describe('Comma-separated email addresses for CC field when Finance ID is not found in the sheet.'),
   "excludedOrgs": zod.string().nullish().describe('Comma-separated list of organization names to hide from the dashboard.')
 })
 
@@ -207,6 +210,9 @@ export const UpdateSettingsBody = zod.object({
   "immediateSmsCols": zod.string().optional(),
   "immediateEmailToCols": zod.string().optional(),
   "immediateEmailCcCols": zod.string().optional(),
+  "fallbackSmsNumbers": zod.string().optional(),
+  "fallbackEmailTo": zod.string().optional(),
+  "fallbackEmailCc": zod.string().optional(),
   "excludedOrgs": zod.string().optional()
 })
 
@@ -249,6 +255,9 @@ export const UpdateSettingsResponse = zod.object({
   "immediateSmsCols": zod.string().nullish(),
   "immediateEmailToCols": zod.string().nullish(),
   "immediateEmailCcCols": zod.string().nullish(),
+  "fallbackSmsNumbers": zod.string().nullish().describe('Comma-separated phone numbers to SMS when a client\'s Finance ID is not found in the sheet.'),
+  "fallbackEmailTo": zod.string().nullish().describe('Comma-separated email addresses for To field when Finance ID is not found in the sheet.'),
+  "fallbackEmailCc": zod.string().nullish().describe('Comma-separated email addresses for CC field when Finance ID is not found in the sheet.'),
   "excludedOrgs": zod.string().nullish().describe('Comma-separated list of organization names to hide from the dashboard.')
 })
 

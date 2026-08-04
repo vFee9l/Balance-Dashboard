@@ -293,6 +293,20 @@ const migrations: Array<{ label: string; sql: string }> = [
     sql: `ALTER TABLE settings ADD COLUMN IF NOT EXISTS excluded_orgs text`,
   },
 
+  // ── settings: add fallback contacts (no sheet match) ─────────────────────────
+  {
+    label: "settings: add fallback_sms_numbers column",
+    sql: `ALTER TABLE settings ADD COLUMN IF NOT EXISTS fallback_sms_numbers text`,
+  },
+  {
+    label: "settings: add fallback_email_to column",
+    sql: `ALTER TABLE settings ADD COLUMN IF NOT EXISTS fallback_email_to text`,
+  },
+  {
+    label: "settings: add fallback_email_cc column",
+    sql: `ALTER TABLE settings ADD COLUMN IF NOT EXISTS fallback_email_cc text`,
+  },
+
   // ── settings: add immediate intervention threshold + column routing ──────────
   {
     label: "settings: add threshold_immediate column",

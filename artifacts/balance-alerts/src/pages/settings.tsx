@@ -596,6 +596,36 @@ export default function SettingsPage() {
                   )} />
                 </div>
               </div>
+              {/* Fallback — no sheet match */}
+              <div className="rounded-lg border border-border bg-muted/30 p-4 space-y-3">
+                <div>
+                  <p className="text-xs font-bold uppercase tracking-wider text-muted-foreground">⚠ Fallback — Finance ID not in sheet</p>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Used when a client's Finance ID is missing or not found in the Google Sheet. Enter actual phone numbers and email addresses (not column letters), comma-separated.
+                    If left empty, the system falls back to the Contacts table.
+                  </p>
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  <FormField control={form.control} name="fallbackSmsNumbers" render={({ field }) => (
+                    <FormItem>
+                      <FormLabel className="text-xs text-muted-foreground">SMS numbers</FormLabel>
+                      <FormControl><Input className="bg-background font-mono text-sm" placeholder="+966501234567,+966507654321" {...field} value={field.value || ""} /></FormControl>
+                    </FormItem>
+                  )} />
+                  <FormField control={form.control} name="fallbackEmailTo" render={({ field }) => (
+                    <FormItem>
+                      <FormLabel className="text-xs text-muted-foreground">Email To</FormLabel>
+                      <FormControl><Input className="bg-background font-mono text-sm" placeholder="manager@company.com" {...field} value={field.value || ""} /></FormControl>
+                    </FormItem>
+                  )} />
+                  <FormField control={form.control} name="fallbackEmailCc" render={({ field }) => (
+                    <FormItem>
+                      <FormLabel className="text-xs text-muted-foreground">Email CC</FormLabel>
+                      <FormControl><Input className="bg-background font-mono text-sm" placeholder="staff@company.com,md@company.com" {...field} value={field.value || ""} /></FormControl>
+                    </FormItem>
+                  )} />
+                </div>
+              </div>
               <p className="text-xs text-muted-foreground pt-1">
                 Default sheet layout: <span className="font-mono">F</span>=AM Mobile · <span className="font-mono">G</span>=AM Email · <span className="font-mono">H</span>=CSS Mobile · <span className="font-mono">I</span>=CSS Email · <span className="font-mono">J</span>=Manager Mobile · <span className="font-mono">K</span>=Manager Email · <span className="font-mono">L</span>=MD Mobile · <span className="font-mono">M</span>=MD Email
               </p>

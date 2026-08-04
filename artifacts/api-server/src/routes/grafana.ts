@@ -1053,7 +1053,20 @@ export async function runAlertChecks(): Promise<{
       };
     }
 
-    // DB fallback — same routing rules applied to global contacts
+    // Settings-based fallback — used when financeId is missing or not in the sheet.
+    // If configured, these take priority over the DB contacts fallback.
+    const splitTrimmed = (s: string | null | undefined) =>
+      (s ?? "").split(",").map(v => v.trim()).filter(v => v.length > 0);
+
+    const fbSms   = splitTrimmed(settings?.fallbackSmsNumbers);
+    const fbTo    = splitTrimmed(settings?.fallbackEmailTo);
+    const fbCc    = splitTrimmed(settings?.fallbackEmailCc);
+
+    if (fbSms.length > 0 || fbTo.length > 0 || fbCc.length > 0) {
+      return { smsNumbers: fbSms, toEmails: fbTo, ccEmails: fbCc };
+    }
+
+    // DB contacts fallback — used when no settings-based fallback is configured
     if (severity === "warning") {
       return { toEmails: dbStaffEmails, ccEmails: dbManagerEmails, smsNumbers: dbStaffPhones };
     } else if (severity === "critical") {

@@ -71,6 +71,21 @@ export interface Settings {
   /** @nullable */
   immediateEmailCcCols?: string | null;
   /**
+     * Comma-separated phone numbers to SMS when a client's Finance ID is not found in the sheet.
+     * @nullable
+     */
+  fallbackSmsNumbers?: string | null;
+  /**
+     * Comma-separated email addresses for To field when Finance ID is not found in the sheet.
+     * @nullable
+     */
+  fallbackEmailTo?: string | null;
+  /**
+     * Comma-separated email addresses for CC field when Finance ID is not found in the sheet.
+     * @nullable
+     */
+  fallbackEmailCc?: string | null;
+  /**
      * Comma-separated list of organization names to hide from the dashboard.
      * @nullable
      */
