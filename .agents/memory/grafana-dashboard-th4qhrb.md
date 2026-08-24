@@ -15,11 +15,11 @@ The linked Grafana dashboard returns organization detail rows with hierarchy, Fi
 
 **How to apply:** Use the Grafana summary procedure as the source of truth for operational balances and expose a full precision, separator-formatted value in any direct comparison view.
 
-**Hierarchy history completeness:** A live main-organization total can include direct-balance children that have no corresponding daily snapshot history. Do not calculate a forecast from only the parent or an incomplete subset.
+**Hierarchy history source:** Grafana’s “Daily Balance Summary” panel does not aggregate child snapshot rows. It reads the selected main organization’s `BalanceHistory-Daily` row and calculates the historical roll-up as `TotalUserBalance + TotalOrganizationBalance`.
 
-**Why:** Combining a rolled-up live total with parent-only consumption produces a materially false days-remaining estimate.
+**Why:** Selecting only a parent’s user or organization component produced AlRajhi’s small `205,302` value instead of the Grafana roll-up in the billions; querying child IDs did not recover their daily snapshots.
 
-**How to apply:** Aggregate daily values by all records rolling up to the main organization and their individual balance modes. Exclude partial hierarchy days from the rate, report the coverage limitation, and show no forecast when no complete history remains.
+**How to apply:** Mirror this main-row combined-balance calculation for daily history, consumption, deltas, and rates. Keep child records for the explanatory child-balance UI, not as required contributors to the panel’s daily series.
 
 **Daily interval validity:** A daily consumption delta is valid only when its complete hierarchy snapshots are exactly one calendar day apart.
 
@@ -27,8 +27,14 @@ The linked Grafana dashboard returns organization detail rows with hierarchy, Fi
 
 **How to apply:** Filter incomplete hierarchy dates before calculating the lag, then exclude any remaining lag pair whose dates are not adjacent from all rates, daily deltas, and forecast logic. If retained history is fragmented, calculate a forecast only from the most recent contiguous run; never combine separate runs to meet a coverage threshold.
 
-**Historical contributor selection:** Use the same hierarchy records that make up the current calculated total. A main parent with a zero calculated balance is not a required historical contributor when its child records supply the live total.
+**Interval validity:** The combined main-row series must still use only exactly consecutive daily points for rate and forecast windows.
 
-**Why:** Counting that zero-balance parent as an expected snapshot makes valid child history look incomplete, which hid AlRajhi's daily balance data and suppressed usable rates.
+**Why:** A gap between retained snapshots turns a multi-day balance drop into an overstated one-day rate even when the source formula is correct.
 
-**How to apply:** Deduplicate each organization's daily snapshot before aggregating by date, retain all aggregated rows for the study display with coverage metadata, and use only complete consecutive intervals from the latest run for rates and forecasts.
+**How to apply:** Keep all Grafana daily rows visible in the study, but exclude gap-boundary pairs from the latest contiguous rate run and return an unavailable estimate if the remaining run is too short.
+
+**Organization names:** Grafana organization names can contain invisible leading or trailing whitespace (for example, `" ANB"`).
+
+**Why:** The dashboard renders the label as ANB, but an exact untrimmed lookup fails and incorrectly reports that the organization is absent.
+
+**How to apply:** Trim Grafana names at the API boundary and use trimmed comparisons when resolving a request back to the Grafana detail rows.

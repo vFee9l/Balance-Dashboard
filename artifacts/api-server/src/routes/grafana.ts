@@ -101,20 +101,48 @@ function buildHierarchyConsumptionSql(): string {
       FROM HistoricalContributors
       GROUP BY MainOrganizationId
     ),
-    DailySnapshots AS (
+    SnapshotCandidates AS (
       SELECT
         contributor.MainOrganizationId,
         contributor.OrganizationId,
         CAST(h.CreatedDate AS DATE) AS date,
-        MAX(CASE
+        h.CreatedDate,
+        1 AS source_priority,
+        CASE
           WHEN contributor.UsesOrgBalance = 1 THEN COALESCE(h.TotalOrganizationBalance, 0)
           ELSE COALESCE(h.TotalUserBalance, 0)
-        END) AS balance
+        END AS balance
       FROM [RiCH-Web-2].[dbo].[BalanceHistory-Daily] h
       JOIN HistoricalContributors contributor ON contributor.OrganizationId = h.Id
       WHERE h.CreatedDate >= DATEADD(day, -95, CAST(GETDATE() AS DATE))
         AND h.CreatedDate <= CAST(GETDATE() AS DATE)
-      GROUP BY contributor.MainOrganizationId, contributor.OrganizationId, CAST(h.CreatedDate AS DATE)
+      UNION ALL
+      SELECT
+        contributor.MainOrganizationId,
+        contributor.OrganizationId,
+        CAST(h.CreatedDate AS DATE) AS date,
+        h.CreatedDate,
+        2 AS source_priority,
+        CASE
+          WHEN contributor.UsesOrgBalance = 1 THEN COALESCE(h.TotalOrganizationBalance, 0)
+          ELSE COALESCE(h.TotalUserBalance, 0)
+        END AS balance
+      FROM [RiCH-Web-2].[dbo].[BalanceHistory-Hour] h
+      JOIN HistoricalContributors contributor ON contributor.OrganizationId = h.Id
+      WHERE h.CreatedDate >= DATEADD(day, -95, CAST(GETDATE() AS DATE))
+        AND h.CreatedDate <= CAST(GETDATE() AS DATE)
+    ),
+    DailySnapshots AS (
+      SELECT MainOrganizationId, OrganizationId, date, balance
+      FROM (
+        SELECT *,
+          ROW_NUMBER() OVER (
+            PARTITION BY MainOrganizationId, OrganizationId, date
+            ORDER BY source_priority ASC, CreatedDate DESC
+          ) AS snapshot_rank
+        FROM SnapshotCandidates
+      ) candidates
+      WHERE snapshot_rank = 1
     ),
     AggregatedDailyBalances AS (
       SELECT
@@ -213,6 +241,105 @@ function buildHierarchyConsumptionSql(): string {
         THEN history.balance END) AS day_before_balance
     FROM MainOrganizations main
     LEFT JOIN LatestRunHistory history ON history.MainOrganizationId = main.MainOrganizationId
+    GROUP BY main.metric
+  `;
+}
+
+function buildGrafanaDailyPanelRateSql(): string {
+  return `
+    DECLARE @data TABLE (
+      OrganizationId NVARCHAR(100),
+      OrganisationName NVARCHAR(200),
+      FinanceAccountId INT,
+      ParentOrganisationId NVARCHAR(100),
+      OrgLevel NVARCHAR(10),
+      RollsUpToMainOrganizationId NVARCHAR(100),
+      UsesOrgBalance INT,
+      CalculatedBalance DECIMAL(18,3)
+    )
+    INSERT INTO @data
+    EXEC [RiCH-Web].[dbo].[usp_GetClientBalancesDashboard]
+      @RootOrganizationId = '${grafanaRootOrganizationId}',
+      @Mode = 'DETAIL'
+
+    ;WITH MainOrganizations AS (
+      SELECT
+        LTRIM(RTRIM(OrganisationName)) AS metric,
+        COALESCE(RollsUpToMainOrganizationId, OrganizationId) AS MainOrganizationId
+      FROM @data
+      WHERE OrgLevel = 'main'
+    ),
+    DailySnapshots AS (
+      SELECT
+        main.metric,
+        main.MainOrganizationId,
+        CAST(h.CreatedDate AS DATE) AS date,
+        CAST(COALESCE(h.TotalUserBalance, 0) + COALESCE(h.TotalOrganizationBalance, 0) AS DECIMAL(18,3)) AS balance
+      FROM MainOrganizations main
+      JOIN [RiCH-Web-2].[dbo].[BalanceHistory-Daily] h ON h.Id = main.MainOrganizationId
+      WHERE h.CreatedDate >= DATEADD(day, -95, CAST(GETDATE() AS DATE))
+        AND h.CreatedDate <= CAST(GETDATE() AS DATE)
+    ),
+    DailyWithPrevious AS (
+      SELECT
+        *,
+        LAG(balance) OVER (PARTITION BY metric ORDER BY date ASC) AS previous_balance,
+        LAG(date) OVER (PARTITION BY metric ORDER BY date ASC) AS previous_date
+      FROM DailySnapshots
+    ),
+    DailyRuns AS (
+      SELECT
+        *,
+        CASE WHEN DATEDIFF(day, previous_date, date) = 1 THEN 1 ELSE 0 END AS is_valid_interval,
+        CASE WHEN previous_balance - balance > 0 THEN previous_balance - balance ELSE 0 END AS daily_consumption,
+        SUM(CASE WHEN previous_date IS NULL OR DATEDIFF(day, previous_date, date) <> 1 THEN 1 ELSE 0 END)
+          OVER (PARTITION BY metric ORDER BY date ASC ROWS UNBOUNDED PRECEDING) AS run_id
+      FROM DailyWithPrevious
+    ),
+    LatestRuns AS (
+      SELECT metric, MAX(run_id) AS run_id
+      FROM DailyRuns
+      GROUP BY metric
+    ),
+    LatestRunHistory AS (
+      SELECT daily.*
+      FROM DailyRuns daily
+      JOIN LatestRuns latest ON latest.metric = daily.metric AND latest.run_id = daily.run_id
+    )
+    SELECT
+      main.metric,
+      CAST(SUM(CASE WHEN history.is_valid_interval = 1
+        AND history.date >= DATEADD(day, -32, CAST(GETDATE() AS DATE))
+        THEN history.daily_consumption ELSE 0 END) AS FLOAT)
+        / NULLIF(SUM(CASE WHEN history.is_valid_interval = 1
+          AND history.date >= DATEADD(day, -32, CAST(GETDATE() AS DATE))
+          THEN 1 ELSE 0 END), 0) AS Avg_Daily_Consumption,
+      SUM(CASE WHEN history.is_valid_interval = 1
+        AND history.date >= DATEADD(day, -32, CAST(GETDATE() AS DATE))
+        THEN 1 ELSE 0 END) AS long_rate_interval_count,
+      CAST(SUM(CASE WHEN history.is_valid_interval = 1
+        AND history.date >= DATEADD(day, -9, CAST(GETDATE() AS DATE))
+        THEN history.daily_consumption ELSE 0 END) AS FLOAT)
+        / NULLIF(SUM(CASE WHEN history.is_valid_interval = 1
+          AND history.date >= DATEADD(day, -9, CAST(GETDATE() AS DATE))
+          THEN 1 ELSE 0 END), 0) AS Avg_Daily_Consumption_Recent,
+      SUM(CASE WHEN history.is_valid_interval = 1
+        AND history.date >= DATEADD(day, -9, CAST(GETDATE() AS DATE))
+        THEN 1 ELSE 0 END) AS recent_rate_interval_count,
+      SUM(CASE WHEN history.is_valid_interval = 1 THEN 1 ELSE 0 END) AS history_coverage_days,
+      MAX(CASE WHEN history.is_valid_interval = 1
+        AND history.date = DATEADD(day, -1, CAST(GETDATE() AS DATE))
+        THEN history.daily_consumption END) AS yesterday_consumption,
+      MAX(CASE WHEN history.is_valid_interval = 1
+        AND history.date = DATEADD(day, -2, CAST(GETDATE() AS DATE))
+        THEN history.daily_consumption END) AS day_before_consumption,
+      MAX(CASE WHEN history.is_valid_interval = 1
+        AND history.date = DATEADD(day, -1, CAST(GETDATE() AS DATE))
+        THEN history.balance END) AS yesterday_balance,
+      MAX(CASE WHEN history.date = DATEADD(day, -2, CAST(GETDATE() AS DATE))
+        THEN history.balance END) AS day_before_balance
+    FROM MainOrganizations main
+    LEFT JOIN LatestRunHistory history ON history.metric = main.metric
     GROUP BY main.metric
   `;
 }
@@ -379,10 +506,9 @@ async function fetchGrafanaBalances(): Promise<ClientBalanceData[]> {
     WHERE n.rn = 1 AND o.rn = 1
   `;
 
-  // Hierarchy-safe daily rates for operational monitoring and alerts. A main
-  // organization is only given a rate when every organization contributing to
-  // its calculated summary balance has a daily snapshot for that date.
-  const hierarchyConsumptionSql = buildHierarchyConsumptionSql();
+  // Mirrors Grafana's Daily Balance Summary panel: a main organization's
+  // stored daily snapshot carries the rolled-up organization balance.
+  const hierarchyConsumptionSql = buildGrafanaDailyPanelRateSql();
   /*
     DECLARE @data TABLE (
       OrganizationId NVARCHAR(100),
@@ -640,7 +766,7 @@ function studyHistorySql(metric: string): string {
     DECLARE @MainOrgId NVARCHAR(100)
     SELECT TOP 1 @MainOrgId = COALESCE(RollsUpToMainOrganizationId, OrganizationId)
     FROM @data
-    WHERE OrganisationName = '${escapedMetric}'
+    WHERE LTRIM(RTRIM(OrganisationName)) = '${escapedMetric}'
       AND OrgLevel = 'main'
 
     ;WITH HistoricalContributors AS (
@@ -656,20 +782,48 @@ function studyHistorySql(metric: string): string {
       FROM HistoricalContributors
       WHERE MainOrganizationId = @MainOrgId
     ),
-    DailySnapshots AS (
+    SnapshotCandidates AS (
       SELECT
         contributor.OrganizationId,
         CAST(h.CreatedDate AS DATE) AS date,
-        MAX(CASE
+        h.CreatedDate,
+        1 AS source_priority,
+        CASE
           WHEN contributor.UsesOrgBalance = 1 THEN COALESCE(h.TotalOrganizationBalance, 0)
           ELSE COALESCE(h.TotalUserBalance, 0)
-        END) AS balance
+        END AS balance
       FROM [RiCH-Web-2].[dbo].[BalanceHistory-Daily] h
       JOIN HistoricalContributors contributor ON contributor.OrganizationId = h.Id
       WHERE contributor.MainOrganizationId = @MainOrgId
         AND h.CreatedDate >= DATEADD(day, -90, CAST(GETDATE() AS DATE))
         AND h.CreatedDate <= CAST(GETDATE() AS DATE)
-      GROUP BY contributor.OrganizationId, CAST(h.CreatedDate AS DATE)
+      UNION ALL
+      SELECT
+        contributor.OrganizationId,
+        CAST(h.CreatedDate AS DATE) AS date,
+        h.CreatedDate,
+        2 AS source_priority,
+        CASE
+          WHEN contributor.UsesOrgBalance = 1 THEN COALESCE(h.TotalOrganizationBalance, 0)
+          ELSE COALESCE(h.TotalUserBalance, 0)
+        END AS balance
+      FROM [RiCH-Web-2].[dbo].[BalanceHistory-Hour] h
+      JOIN HistoricalContributors contributor ON contributor.OrganizationId = h.Id
+      WHERE contributor.MainOrganizationId = @MainOrgId
+        AND h.CreatedDate >= DATEADD(day, -90, CAST(GETDATE() AS DATE))
+        AND h.CreatedDate <= CAST(GETDATE() AS DATE)
+    ),
+    DailySnapshots AS (
+      SELECT OrganizationId, date, balance
+      FROM (
+        SELECT *,
+          ROW_NUMBER() OVER (
+            PARTITION BY OrganizationId, date
+            ORDER BY source_priority ASC, CreatedDate DESC
+          ) AS snapshot_rank
+        FROM SnapshotCandidates
+      ) candidates
+      WHERE snapshot_rank = 1
     ),
     AggregatedDailyBalances AS (
       SELECT
@@ -718,6 +872,61 @@ function studyHistorySql(metric: string): string {
         AND previous_is_complete = 1
         AND DATEDIFF(day, previous_date, date) = 1
         THEN 1 ELSE 0 END AS is_valid_interval
+    FROM DailyWithPrevious
+    ORDER BY date
+  `;
+}
+
+function grafanaDailyPanelStudySql(metric: string): string {
+  const escapedMetric = metric.replace(/'/g, "''");
+  return `
+    DECLARE @data TABLE (
+      OrganizationId NVARCHAR(100),
+      OrganisationName NVARCHAR(200),
+      FinanceAccountId INT,
+      ParentOrganisationId NVARCHAR(100),
+      OrgLevel NVARCHAR(10),
+      RollsUpToMainOrganizationId NVARCHAR(100),
+      UsesOrgBalance INT,
+      CalculatedBalance DECIMAL(18,3)
+    )
+    INSERT INTO @data
+    EXEC [RiCH-Web].[dbo].[usp_GetClientBalancesDashboard]
+      @RootOrganizationId = '${grafanaRootOrganizationId}',
+      @Mode = 'DETAIL'
+
+    DECLARE @MainOrgId NVARCHAR(100)
+    SELECT TOP 1 @MainOrgId = COALESCE(RollsUpToMainOrganizationId, OrganizationId)
+    FROM @data
+    WHERE LTRIM(RTRIM(OrganisationName)) = '${escapedMetric}'
+      AND OrgLevel = 'main'
+
+    ;WITH DailySnapshots AS (
+      SELECT
+        CAST(h.CreatedDate AS DATE) AS date,
+        CAST(COALESCE(h.TotalUserBalance, 0) + COALESCE(h.TotalOrganizationBalance, 0) AS DECIMAL(18,3)) AS balance
+      FROM [RiCH-Web-2].[dbo].[BalanceHistory-Daily] h
+      WHERE h.Id = @MainOrgId
+        AND h.CreatedDate >= DATEADD(day, -90, CAST(GETDATE() AS DATE))
+        AND h.CreatedDate <= CAST(GETDATE() AS DATE)
+    ),
+    DailyWithPrevious AS (
+      SELECT
+        date,
+        balance,
+        LAG(balance) OVER (ORDER BY date ASC) AS previous_balance,
+        LAG(date) OVER (ORDER BY date ASC) AS previous_date
+      FROM DailySnapshots
+    )
+    SELECT
+      date,
+      balance,
+      CASE WHEN previous_balance - balance > 0 THEN previous_balance - balance ELSE 0 END AS consumption,
+      CASE WHEN previous_balance IS NOT NULL THEN balance - previous_balance ELSE NULL END AS balance_change,
+      1 AS organization_count,
+      1 AS expected_organization_count,
+      1 AS is_complete,
+      CASE WHEN DATEDIFF(day, previous_date, date) = 1 THEN 1 ELSE 0 END AS is_valid_interval
     FROM DailyWithPrevious
     ORDER BY date
   `;
@@ -783,7 +992,7 @@ router.get("/grafana/organization-study", async (req, res): Promise<void> => {
   try {
     const data = await queryGrafana([
       { refId: "S", rawSql: dashboardSummarySql },
-      { refId: "H", rawSql: studyHistorySql(params.data.metric) },
+      { refId: "H", rawSql: grafanaDailyPanelStudySql(params.data.metric) },
       { refId: "C", rawSql: organizationChildrenSql(params.data.metric) },
     ]);
     const fetchedAt = new Date().toISOString();

@@ -90,7 +90,7 @@ export function frameRows(frames: GrafanaFrame[]): Record<string, unknown>[] {
 
 function stringValue(value: unknown): string | null {
   if (value === null || value === undefined) return null;
-  const text = String(value);
+  const text = String(value).trim();
   return text === "" ? null : text;
 }
 

@@ -119,6 +119,34 @@ test("calculated hierarchy summary produces one AlRajhi alert target", () => {
   });
 });
 
+test("normalizes whitespace in Grafana organization names before matching rates", () => {
+  const summary = frame(
+    ["metric", "finance_id", "uses_org_balance", "Remaining_Balance"],
+    [[" ANB "], ["2040"], [1], [1_000_000]],
+  );
+  const rates = frame(
+    [
+      "metric",
+      "Avg_Daily_Consumption",
+      "Avg_Daily_Consumption_Recent",
+      "yesterday_consumption",
+      "day_before_consumption",
+      "long_rate_interval_count",
+      "recent_rate_interval_count",
+      "history_coverage_days",
+      "yesterday_balance",
+      "day_before_balance",
+    ],
+    [[" ANB"], [50_000], [50_000], [55_000], [45_000], [30], [7], [30], [950_000], [1_005_000]],
+  );
+
+  const balances = parseFramesToBalances([summary], [rates], [rates], [rates], fetchWindow);
+
+  assert.equal(balances.length, 1);
+  assert.equal(balances[0]?.metric, "ANB");
+  assert.equal(balances[0]?.dailyConsumption, 50_000);
+});
+
 test("organization study uses the calculated summary balance with populated 90-day history", () => {
   const start = Date.UTC(2026, 4, 27);
   const history = frame(
