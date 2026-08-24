@@ -66,66 +66,56 @@
 
   --button-outline: rgba(255,255,255, .10);
   --badge-outline: rgba(255,255,255, .05);
-
   --opaque-button-border-intensity: 9;
 
-  --elevate-1: rgba(255,255,255, .04);
-  --elevate-2: rgba(255,255,255, .09);
+  /* Deep Marine / Slate Base */
+  --background: 224 35% 6%;
+  --foreground: 210 20% 95%;
 
-  /* Slate-950 base background */
-  --background: 222 47% 7%;
-  --foreground: 210 40% 98%;
+  /* Slightly lighter cards for depth */
+  --card: 224 35% 8%;
+  --card-foreground: 210 20% 95%;
+  --card-border: 224 35% 15%;
 
-  --card: 222 47% 9%;
-  --card-foreground: 210 40% 98%;
-  --card-border: 217 33% 15%;
-
-  --popover: 222 47% 9%;
-  --popover-foreground: 210 40% 98%;
-  --popover-border: 217 33% 15%;
+  --popover: 224 35% 8%;
+  --popover-foreground: 210 20% 95%;
+  --popover-border: 224 35% 15%;
 
   /* Electric Cyan Primary */
-  --primary: 188 86% 53%;
-  --primary-foreground: 222 47% 7%;
+  --primary: 185 90% 55%;
+  --primary-foreground: 224 35% 6%;
 
-  --secondary: 217 33% 17%;
-  --secondary-foreground: 210 40% 98%;
+  /* Rich secondary */
+  --secondary: 224 35% 15%;
+  --secondary-foreground: 210 20% 95%;
 
-  --muted: 217 33% 15%;
-  --muted-foreground: 215 20.2% 65.1%;
+  /* Subtle muted tones */
+  --muted: 224 35% 12%;
+  --muted-foreground: 215 15% 65%;
 
-  --accent: 217 33% 17%;
-  --accent-foreground: 210 40% 98%;
+  --accent: 185 90% 55%;
+  --accent-foreground: 224 35% 6%;
 
-  --destructive: 0 84% 60%;
-  --destructive-foreground: 210 40% 98%;
+  --destructive: 0 85% 60%;
+  --destructive-foreground: 210 20% 95%;
 
-  --border: 217 33% 15%;
-  --input: 217 33% 17%;
-  --ring: 188 86% 53%;
+  --border: 224 35% 15%;
+  --input: 224 35% 15%;
+  --ring: 185 90% 55%;
 
-  --sidebar: 222 47% 7%;
-  --sidebar-foreground: 210 40% 98%;
-  --sidebar-border: 217 33% 15%;
-  --sidebar-primary: 188 86% 53%;
-  --sidebar-primary-foreground: 222 47% 7%;
-  --sidebar-accent: 217 33% 17%;
-  --sidebar-accent-foreground: 210 40% 98%;
-  --sidebar-ring: 188 86% 53%;
+  --sidebar: 224 40% 4%;
+  --sidebar-foreground: 210 20% 95%;
+  --sidebar-border: 224 35% 12%;
+  --sidebar-primary: 185 90% 55%;
+  --sidebar-primary-foreground: 224 35% 6%;
+  --sidebar-accent: 224 35% 12%;
+  --sidebar-accent-foreground: 210 20% 95%;
+  --sidebar-ring: 185 90% 55%;
 
   --app-font-sans: 'Inter', system-ui, sans-serif;
   --app-font-serif: Georgia, serif;
   --app-font-mono: 'JetBrains Mono', monospace;
   --radius: 0.25rem;
-
-  --shadow-2xs: 0px 2px 0px 0px rgba(0,0,0,0.2);
-  --shadow-xs: 0px 2px 0px 0px rgba(0,0,0,0.2);
-  --shadow-sm: 0px 2px 0px 0px rgba(0,0,0,0.2), 0px 1px 2px -1px rgba(0,0,0,0.1);
-  --shadow: 0px 2px 0px 0px rgba(0,0,0,0.2), 0px 1px 2px -1px rgba(0,0,0,0.1);
-  --shadow-md: 0px 2px 0px 0px rgba(0,0,0,0.2), 0px 2px 4px -1px rgba(0,0,0,0.1);
-  --shadow-lg: 0px 2px 0px 0px rgba(0,0,0,0.2), 0px 4px 6px -1px rgba(0,0,0,0.1);
-  --shadow-xl: 0px 2px 0px 0px rgba(0,0,0,0.2), 0px 8px 10px -1px rgba(0,0,0,0.1);
-  --shadow-2xl: 0px 2px 0px 0px rgba(0,0,0,0.2);
 
   --sidebar-primary-border: hsl(from hsl(var(--sidebar-primary)) h s calc(l + var(--opaque-button-border-intensity)) / alpha);
   --sidebar-accent-border: hsl(from hsl(var(--sidebar-accent)) h s calc(l + var(--opaque-button-border-intensity)) / alpha);
@@ -158,6 +148,27 @@
   [contenteditable][data-placeholder]:empty::before {
     content: attr(data-placeholder);
     color: hsl(var(--muted-foreground));
+    pointer-events: none;
+  }
+
+  /* Scanline effect for terminal vibe */
+  .scanlines::before {
+    content: " ";
+    display: block;
+    position: absolute;
+    top: 0;
+    left: 0;
+    bottom: 0;
+    right: 0;
+    background: linear-gradient(
+      to bottom,
+      rgba(255, 255, 255, 0),
+      rgba(255, 255, 255, 0) 50%,
+      rgba(0, 0, 0, 0.05) 50%,
+      rgba(0, 0, 0, 0.05)
+    );
+    background-size: 100% 4px;
+    z-index: 50;
     pointer-events: none;
   }
 }

@@ -28,7 +28,7 @@ type ClientBalance = {
 };
 import { useQueryClient } from "@tanstack/react-query";
 import { useToast } from "@/hooks/use-toast";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -39,9 +39,8 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
-import { AlertCircle, CheckCircle2, ShieldAlert, Activity, RefreshCw, Search, Filter, BarChart2, Info, ArrowUp, ArrowDown, ArrowUpDown } from "lucide-react";
+import { AlertCircle, CheckCircle2, ShieldAlert, Activity, RefreshCw, Search, Filter, BarChart2, Info, ArrowUp, ArrowDown, ArrowUpDown, TriangleAlert, Zap } from "lucide-react";
 import { format } from "date-fns";
 import OrganizationStudyDialog from "@/components/OrganizationStudyDialog";
 import {
@@ -79,16 +78,17 @@ function SortableHead({
   const active = sortCol === col;
   return (
     <TableHead
-      className={`font-mono text-xs font-semibold tracking-wider uppercase select-none cursor-pointer whitespace-nowrap ${align === "right" ? "text-right" : ""}`}
+      className={`font-mono text-[11px] font-semibold tracking-wider uppercase select-none cursor-pointer whitespace-nowrap bg-card/40 ${align === "right" ? "text-right" : ""}`}
       title={title}
       onClick={() => onSort(col)}
+      data-testid={`sort-header-${col}`}
     >
-      <span className={`inline-flex items-center gap-1 transition-colors ${active ? "text-foreground" : "text-muted-foreground hover:text-foreground/70"} ${align === "right" ? "flex-row-reverse" : ""}`}>
+      <span className={`inline-flex items-center gap-1 transition-colors ${active ? "text-primary" : "text-muted-foreground hover:text-foreground/70"} ${align === "right" ? "flex-row-reverse" : ""}`}>
         {label}
         {active ? (
           sortDir === "asc" ? <ArrowUp className="w-3 h-3 shrink-0" /> : <ArrowDown className="w-3 h-3 shrink-0" />
         ) : (
-          <ArrowUpDown className="w-3 h-3 shrink-0 opacity-40" />
+          <ArrowUpDown className="w-3 h-3 shrink-0 opacity-30" />
         )}
       </span>
     </TableHead>
@@ -103,15 +103,15 @@ export default function Dashboard() {
   const [orgFilter, setOrgFilter] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
   const [selectedClient, setSelectedClient] = useState<{ metric: string; severity: string } | null>(null);
-  const [sortCol, setSortCol] = useState<string>("daysRemaining");
-  const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
+  const [sortCol, setSortCol] = useState<string>("severity");
+  const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
 
   const handleSort = (col: string) => {
     if (sortCol === col) {
       setSortDir((d) => (d === "asc" ? "desc" : "asc"));
     } else {
       setSortCol(col);
-      setSortDir("asc");
+      setSortDir(col === "severity" ? "desc" : "asc");
     }
   };
 
@@ -148,6 +148,16 @@ export default function Dashboard() {
     queryClient.invalidateQueries({ queryKey: getListGrafanaOrganizationsQueryKey() });
   };
 
+  const openOrganizationStudyFromSelector = (metric: string) => {
+    const existing = balances?.find((balance) => balance.metric === metric);
+    // Let Radix finish closing and restoring focus to the selector before the
+    // dialog's focus trap opens. Opening both in the same event caused a
+    // null-focus race in the browser.
+    window.setTimeout(() => {
+      setSelectedClient({ metric, severity: existing?.severity ?? "ok" });
+    }, 0);
+  };
+
   const handleTriggerAlerts = async () => {
     setIsTriggering(true);
     try {
@@ -181,24 +191,30 @@ export default function Dashboard() {
     return n.toLocaleString(undefined, { maximumFractionDigits: 2 });
   };
 
-  const getSeverityColor = (severity: string) => {
+  const getSeverityStyles = (severity: string) => {
     switch (severity.toLowerCase()) {
-      case "ok": return "bg-green-500/10 text-green-500 border-green-500/20";
-      case "warning": return "bg-yellow-500/10 text-yellow-500 border-yellow-500/20";
-      case "critical": return "bg-red-500/10 text-red-500 border-red-500/20";
-      case "emergency": return "bg-red-900/40 text-red-400 border-red-500/40 animate-pulse";
-      case "immediate": return "bg-purple-900/60 text-purple-200 border-purple-400/60 animate-pulse";
-      default: return "bg-gray-500/10 text-gray-500 border-gray-500/20";
+      case "ok":
+        return { text: "text-emerald-400", bg: "bg-emerald-500/10", border: "border-emerald-500/20", glow: "shadow-[0_0_10px_rgba(52,211,153,0.1)]" };
+      case "warning":
+        return { text: "text-amber-400", bg: "bg-amber-500/10", border: "border-amber-500/30", glow: "shadow-[0_0_10px_rgba(251,191,36,0.15)]" };
+      case "critical":
+        return { text: "text-rose-500", bg: "bg-rose-500/10", border: "border-rose-500/30", glow: "shadow-[0_0_10px_rgba(244,63,94,0.2)]" };
+      case "emergency":
+        return { text: "text-pink-500", bg: "bg-pink-600/20", border: "border-pink-500/40", glow: "shadow-[0_0_15px_rgba(236,72,153,0.3)] animate-pulse" };
+      case "immediate":
+        return { text: "text-purple-400", bg: "bg-purple-600/20", border: "border-purple-500/40", glow: "shadow-[0_0_15px_rgba(168,85,247,0.3)] animate-pulse" };
+      default:
+        return { text: "text-slate-400", bg: "bg-slate-500/10", border: "border-slate-500/20", glow: "" };
     }
   };
 
   const getSeverityIcon = (severity: string) => {
     switch (severity.toLowerCase()) {
-      case "ok": return <CheckCircle2 className="w-4 h-4 mr-1 inline" />;
-      case "warning": return <AlertCircle className="w-4 h-4 mr-1 inline" />;
-      case "critical": return <ShieldAlert className="w-4 h-4 mr-1 inline" />;
-      case "emergency": return <Activity className="w-4 h-4 mr-1 inline" />;
-      case "immediate": return <ShieldAlert className="w-4 h-4 mr-1 inline" />;
+      case "ok": return <CheckCircle2 className="w-3.5 h-3.5 mr-1.5 inline" />;
+      case "warning": return <TriangleAlert className="w-3.5 h-3.5 mr-1.5 inline" />;
+      case "critical": return <ShieldAlert className="w-3.5 h-3.5 mr-1.5 inline" />;
+      case "emergency": return <Activity className="w-3.5 h-3.5 mr-1.5 inline" />;
+      case "immediate": return <Zap className="w-3.5 h-3.5 mr-1.5 inline" />;
       default: return null;
     }
   };
@@ -266,46 +282,72 @@ export default function Dashboard() {
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-wrap gap-3 justify-between items-start">
+      {/* Header Area */}
+      <div className="flex flex-col xl:flex-row gap-6 justify-between items-start xl:items-center bg-card/40 border border-border/50 rounded-lg p-5 backdrop-blur-md shadow-sm">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight">System Status</h1>
-          <p className="text-muted-foreground mt-1">Live monitoring of client SMS credit balances.</p>
+          <h1 className="text-2xl font-bold tracking-tight text-foreground flex items-center gap-3">
+            TELEMETRY DASHBOARD
+            {isFetching && (
+              <span className="flex items-center gap-1.5 text-[10px] font-mono tracking-widest text-primary bg-primary/10 px-2 py-1 rounded border border-primary/20">
+                <span className="h-1.5 w-1.5 rounded-full bg-primary animate-pulse" />
+                SYNCING
+              </span>
+            )}
+          </h1>
+          <p className="text-sm text-muted-foreground mt-1 font-medium tracking-wide">
+            Live client SMS credit monitoring and burn-rate forecast.
+          </p>
+          {dataUpdatedAt > 0 && (
+            <p className="text-xs font-mono text-muted-foreground/60 mt-2 flex items-center gap-1.5">
+              <span className="inline-block w-1 h-1 rounded-full bg-muted-foreground/40" />
+              LAST SEEN: {format(new Date(dataUpdatedAt), "HH:mm:ss.SSS")}
+            </p>
+          )}
         </div>
-        <div className="flex flex-wrap gap-2 items-center">
-            <Select
-              value={selectedClient?.metric ?? ""}
-              onValueChange={(metric) => {
-                const existing = balances?.find((balance) => balance.metric === metric);
-                setSelectedClient({ metric, severity: existing?.severity ?? "ok" });
-              }}
-            >
-              <SelectTrigger className="h-9 w-52 bg-background/50 text-sm">
-                <SelectValue placeholder="Organization study" />
-              </SelectTrigger>
-              <SelectContent>
-                {isLoadingOrganizationDirectory ? (
-                  <SelectItem value="loading" disabled>Loading organizations…</SelectItem>
-                ) : (
-                  organizationList.map((organization) => (
-                    <SelectItem key={organization.metric} value={organization.metric}>
-                      {organization.metric}
-                    </SelectItem>
-                  ))
-                )}
-              </SelectContent>
-            </Select>
 
-          {/* Auto-refresh selector */}
-          <div className="flex items-center gap-2">
-            <RefreshCw className={`h-4 w-4 text-muted-foreground ${isFetching ? "animate-spin" : ""}`} />
+        <div className="flex flex-wrap gap-3 items-center">
+          <Select
+            value={selectedClient?.metric ?? ""}
+            onValueChange={openOrganizationStudyFromSelector}
+          >
+            <SelectTrigger className="h-10 w-[220px] bg-background/50 border-border/60 hover:border-primary/40 transition-colors font-mono text-xs">
+              <Search className="w-3.5 h-3.5 mr-2 opacity-50" />
+              <SelectValue placeholder="Lookup Org Study..." />
+            </SelectTrigger>
+            <SelectContent>
+              {isLoadingOrganizationDirectory ? (
+                <SelectItem value="loading" disabled>Loading index…</SelectItem>
+              ) : (
+                organizationList.map((organization) => (
+                  <SelectItem key={organization.metric} value={organization.metric} className="font-mono text-xs">
+                    {organization.metric}
+                  </SelectItem>
+                ))
+              )}
+            </SelectContent>
+          </Select>
+
+          <div className="flex items-center gap-1 bg-background/50 border border-border/60 rounded-md p-0.5">
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={handleRefresh}
+              disabled={isFetching}
+              className="h-9 w-9 p-0 hover:bg-primary/10 hover:text-primary rounded"
+              title="Force sync"
+              data-testid="button-refresh"
+            >
+              <RefreshCw className={`h-4 w-4 ${isFetching ? "animate-spin text-primary" : "text-muted-foreground"}`} />
+            </Button>
+            <div className="w-px h-5 bg-border/60 mx-1" />
             <Select value={refreshInterval} onValueChange={setRefreshInterval}>
-              <SelectTrigger className="w-28 h-9 text-sm bg-background/50">
-                <SelectValue placeholder="Refresh" />
+              <SelectTrigger className="h-9 w-[110px] border-0 bg-transparent focus:ring-0 font-mono text-xs text-muted-foreground hover:text-foreground">
+                <SelectValue placeholder="Auto-refresh" />
               </SelectTrigger>
               <SelectContent>
                 {REFRESH_OPTIONS.map((opt) => (
-                  <SelectItem key={opt.value} value={opt.value}>
-                    {opt.label}
+                  <SelectItem key={opt.value} value={opt.value} className="font-mono text-xs">
+                    SYNC: {opt.label}
                   </SelectItem>
                 ))}
               </SelectContent>
@@ -313,351 +355,404 @@ export default function Dashboard() {
           </div>
 
           <Button
-            variant="outline"
-            size="sm"
-            onClick={handleRefresh}
-            disabled={isFetching}
-            className="h-9"
-          >
-            <RefreshCw className={`h-4 w-4 ${isFetching ? "animate-spin" : ""}`} />
-          </Button>
-
-          <Button
             onClick={handleTriggerAlerts}
             disabled={isTriggering}
-            variant="destructive"
-            className="font-bold tracking-wider"
+            data-testid="button-trigger-alerts"
+            className={`h-10 px-5 font-bold tracking-widest text-[11px] border shadow-lg transition-all duration-300 ${
+              isTriggering
+                ? "bg-primary/20 text-primary border-primary/40 cursor-wait"
+                : "bg-rose-500/10 text-rose-400 border-rose-500/30 hover:bg-rose-500/20 hover:border-rose-500/50 hover:shadow-[0_0_15px_rgba(244,63,94,0.3)] hover:-translate-y-0.5"
+            }`}
           >
             {isTriggering ? (
-              <RefreshCw className="mr-2 h-4 w-4 animate-spin" />
+              <>
+                <RefreshCw className="mr-2 h-3.5 w-3.5 animate-spin" />
+                EXECUTING...
+              </>
             ) : (
-              <Activity className="mr-2 h-4 w-4" />
+              <>
+                <Zap className="mr-2 h-3.5 w-3.5" />
+                TRIGGER ALERTS
+              </>
             )}
-            {isTriggering ? "PROCESSING..." : "TRIGGER ALERTS NOW"}
           </Button>
         </div>
       </div>
 
-      {/* Last refreshed */}
-      {dataUpdatedAt > 0 && (
-        <p className="text-xs text-muted-foreground -mt-4">
-          Last updated: {format(new Date(dataUpdatedAt), "PP HH:mm:ss")}
-          {refreshInterval !== "0" && (
-            <span className="ml-2 text-primary">
-              · Auto-refreshing every {REFRESH_OPTIONS.find((o) => o.value === refreshInterval)?.label}
-            </span>
-          )}
-        </p>
-      )}
-
-      {/* Summary cards — live counts from balance data; clicking a severity card filters the table */}
+      {/* Readout Panels */}
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
         <Card
-          className={`bg-card/50 backdrop-blur cursor-pointer transition-all hover:bg-card/70 ${statusFilter === "all" ? "ring-1 ring-primary/60" : ""}`}
+          className={`relative overflow-hidden cursor-pointer transition-all duration-200 border-l-4 group bg-card/40 backdrop-blur-sm ${
+            statusFilter === "all"
+              ? "border-l-primary bg-primary/5 shadow-[0_0_20px_rgba(var(--primary),0.08)] ring-1 ring-primary/20"
+              : "border-l-border hover:bg-card/80 hover:border-l-primary/50"
+          }`}
           onClick={() => setStatusFilter("all")}
-          title="Show all clients"
+          data-testid="card-filter-all"
         >
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Total Alerts Sent</CardTitle>
-            <Activity className="h-4 w-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            {isLoadingSummary ? <Skeleton className="h-7 w-20" /> : (
-              <div className="text-2xl font-bold text-primary">{summary?.totalAlertsSent || 0}</div>
+          <div className="absolute top-0 right-0 p-3 opacity-20 group-hover:opacity-40 transition-opacity">
+            <Activity className="h-16 w-16 -mr-4 -mt-4 text-primary" />
+          </div>
+          <CardContent className="p-5">
+            <p className="text-[11px] font-bold tracking-widest text-muted-foreground uppercase mb-1 flex items-center gap-1.5">
+              Network Status
+            </p>
+            {isLoadingSummary ? <Skeleton className="h-8 w-24 mb-1" /> : (
+              <div className="text-3xl font-mono font-bold text-foreground tracking-tight flex items-baseline gap-2">
+                {summary?.totalAlertsSent || 0}
+                <span className="text-[11px] font-sans font-medium text-muted-foreground uppercase tracking-wider">Alerts Sent</span>
+              </div>
             )}
-            <p className="text-xs text-muted-foreground mt-1">
-              Last run: {summary?.lastRunAt ? format(new Date(summary.lastRunAt), "PP p") : "Never"}
+            <p className="text-xs font-mono text-muted-foreground mt-3 pt-3 border-t border-border/50">
+              Run: <span className="text-foreground/80">{summary?.lastRunAt ? format(new Date(summary.lastRunAt), "HH:mm:ss") : "Never"}</span>
             </p>
           </CardContent>
         </Card>
 
         <Card
-          className={`bg-card/50 backdrop-blur cursor-pointer transition-all hover:bg-card/70 border-yellow-500/20 hover:border-yellow-500/60 ${statusFilter === "warning" ? "ring-1 ring-yellow-500" : ""}`}
+          className={`relative overflow-hidden cursor-pointer transition-all duration-200 border-l-4 group bg-card/40 backdrop-blur-sm ${
+            statusFilter === "warning"
+              ? "border-l-amber-500 bg-amber-500/5 shadow-[0_0_20px_rgba(245,158,11,0.08)] ring-1 ring-amber-500/20"
+              : "border-l-amber-500/20 hover:bg-card/80 hover:border-l-amber-500/50"
+          }`}
           onClick={() => setStatusFilter(statusFilter === "warning" ? "all" : "warning")}
-          title="Filter: Warning clients"
+          data-testid="card-filter-warning"
         >
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium text-yellow-500">Clients in Warning</CardTitle>
-            <AlertCircle className="h-4 w-4 text-yellow-500" />
-          </CardHeader>
-          <CardContent>
-            {isLoadingBalances ? <Skeleton className="h-7 w-20" /> : (
-              <div className="text-2xl font-bold text-yellow-500">{liveCounts.warning}</div>
+          <div className="absolute top-0 right-0 p-3 opacity-[0.15] group-hover:opacity-30 transition-opacity">
+            <TriangleAlert className="h-16 w-16 -mr-4 -mt-4 text-amber-500" />
+          </div>
+          <CardContent className="p-5">
+            <p className="text-[11px] font-bold tracking-widest text-amber-500/80 uppercase mb-1 flex items-center gap-1.5">
+              Warning Node
+            </p>
+            {isLoadingBalances ? <Skeleton className="h-8 w-16 mb-1" /> : (
+              <div className="text-3xl font-mono font-bold text-amber-400 tracking-tight flex items-baseline gap-2">
+                {liveCounts.warning}
+                <span className="text-[11px] font-sans font-medium text-amber-500/60 uppercase tracking-wider">Clients</span>
+              </div>
             )}
-            <p className="text-xs text-muted-foreground mt-1">&lt; {settings?.thresholdStaff ?? 20} days remaining</p>
+            <p className="text-xs font-mono text-muted-foreground mt-3 pt-3 border-t border-border/50 flex items-center gap-1">
+              &lt; {settings?.thresholdStaff ?? 20} <span className="text-muted-foreground/60">DAYS REMAINING</span>
+            </p>
           </CardContent>
         </Card>
 
         <Card
-          className={`bg-card/50 backdrop-blur cursor-pointer transition-all hover:bg-card/70 border-red-500/20 hover:border-red-500/60 ${statusFilter === "critical" ? "ring-1 ring-red-500" : ""}`}
+          className={`relative overflow-hidden cursor-pointer transition-all duration-200 border-l-4 group bg-card/40 backdrop-blur-sm ${
+            statusFilter === "critical"
+              ? "border-l-rose-500 bg-rose-500/5 shadow-[0_0_20px_rgba(244,63,94,0.08)] ring-1 ring-rose-500/20"
+              : "border-l-rose-500/20 hover:bg-card/80 hover:border-l-rose-500/50"
+          }`}
           onClick={() => setStatusFilter(statusFilter === "critical" ? "all" : "critical")}
-          title="Filter: Critical clients"
+          data-testid="card-filter-critical"
         >
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium text-red-500">Clients in Critical</CardTitle>
-            <ShieldAlert className="h-4 w-4 text-red-500" />
-          </CardHeader>
-          <CardContent>
-            {isLoadingBalances ? <Skeleton className="h-7 w-20" /> : (
-              <div className="text-2xl font-bold text-red-500">{liveCounts.critical}</div>
+          <div className="absolute top-0 right-0 p-3 opacity-[0.12] group-hover:opacity-25 transition-opacity">
+            <ShieldAlert className="h-16 w-16 -mr-4 -mt-4 text-rose-500" />
+          </div>
+          <CardContent className="p-5">
+            <p className="text-[11px] font-bold tracking-widest text-rose-500/80 uppercase mb-1 flex items-center gap-1.5">
+              Critical Node
+            </p>
+            {isLoadingBalances ? <Skeleton className="h-8 w-16 mb-1" /> : (
+              <div className="text-3xl font-mono font-bold text-rose-500 tracking-tight flex items-baseline gap-2">
+                {liveCounts.critical}
+                <span className="text-[11px] font-sans font-medium text-rose-500/60 uppercase tracking-wider">Clients</span>
+              </div>
             )}
-            <p className="text-xs text-muted-foreground mt-1">&lt; {settings?.thresholdManager ?? 15} days remaining</p>
+            <p className="text-xs font-mono text-muted-foreground mt-3 pt-3 border-t border-border/50 flex items-center gap-1">
+              &lt; {settings?.thresholdManager ?? 15} <span className="text-muted-foreground/60">DAYS REMAINING</span>
+            </p>
           </CardContent>
         </Card>
 
         <Card
-          className={`bg-card/50 backdrop-blur cursor-pointer transition-all hover:bg-card/70 border-red-900/40 hover:border-red-400/60 ${statusFilter === "emergency" ? "ring-1 ring-red-400" : ""}`}
+          className={`relative overflow-hidden cursor-pointer transition-all duration-200 border-l-4 group bg-card/40 backdrop-blur-sm ${
+            statusFilter === "emergency"
+              ? "border-l-pink-500 bg-pink-500/10 shadow-[0_0_20px_rgba(236,72,153,0.15)] ring-1 ring-pink-500/30"
+              : "border-l-pink-500/30 hover:bg-card/80 hover:border-l-pink-500/60"
+          }`}
           onClick={() => setStatusFilter(statusFilter === "emergency" ? "all" : "emergency")}
-          title="Filter: Emergency clients"
+          data-testid="card-filter-emergency"
         >
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium text-red-400">Emergency Status</CardTitle>
-            <Activity className="h-4 w-4 text-red-400" />
-          </CardHeader>
-          <CardContent>
-            {isLoadingBalances ? <Skeleton className="h-7 w-20" /> : (
-              <div className="text-2xl font-bold text-red-400">{liveCounts.emergency}</div>
+          <div className="absolute top-0 right-0 p-3 opacity-[0.15] group-hover:opacity-30 transition-opacity">
+            <Activity className="h-16 w-16 -mr-4 -mt-4 text-pink-500" />
+          </div>
+          <CardContent className="p-5">
+            <p className="text-[11px] font-bold tracking-widest text-pink-400 uppercase mb-1 flex items-center gap-1.5">
+              Emergency Node
+            </p>
+            {isLoadingBalances ? <Skeleton className="h-8 w-16 mb-1" /> : (
+              <div className="text-3xl font-mono font-bold text-pink-500 tracking-tight flex items-baseline gap-2">
+                {liveCounts.emergency}
+                <span className="text-[11px] font-sans font-medium text-pink-500/60 uppercase tracking-wider">Clients</span>
+              </div>
             )}
-            <p className="text-xs text-muted-foreground mt-1">&lt; {settings?.thresholdMd ?? 5} days remaining</p>
+            <p className="text-xs font-mono text-pink-400/70 mt-3 pt-3 border-t border-pink-500/20 flex items-center gap-1">
+              &lt; {settings?.thresholdMd ?? 5} <span className="text-pink-400/50">DAYS REMAINING</span>
+            </p>
           </CardContent>
         </Card>
       </div>
 
-      {/* Immediate Intervention banner — shown only when there are affected clients */}
+      {/* Immediate Intervention banner */}
       {(liveCounts.immediate > 0) && (
         <Card
-          className={`bg-purple-900/30 backdrop-blur cursor-pointer transition-all hover:bg-purple-900/40 border-purple-400/50 hover:border-purple-400/80 animate-pulse ${statusFilter === "immediate" ? "ring-2 ring-purple-400" : ""}`}
+          className={`bg-purple-900/20 backdrop-blur-md cursor-pointer transition-all border-l-4 group overflow-hidden relative ${
+            statusFilter === "immediate"
+              ? "border-l-purple-500 shadow-[0_0_30px_rgba(168,85,247,0.2)] ring-1 ring-purple-500/40"
+              : "border-l-purple-500 hover:bg-purple-900/30 border-y-purple-500/30 border-r-purple-500/30 animate-pulse"
+          }`}
           onClick={() => setStatusFilter(statusFilter === "immediate" ? "all" : "immediate")}
-          title="Filter: Immediate Intervention clients"
+          data-testid="banner-immediate"
         >
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium text-purple-200">Immediate Intervention Required</CardTitle>
-            <ShieldAlert className="h-4 w-4 text-purple-300" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold text-purple-200">{liveCounts.immediate}</div>
-            <p className="text-xs text-purple-300/70 mt-1">&lt; {settings?.thresholdImmediate ?? 1} days remaining — act now</p>
+          <div className="absolute inset-0 bg-[repeating-linear-gradient(45deg,transparent,transparent_10px,rgba(168,85,247,0.03)_10px,rgba(168,85,247,0.03)_20px)] pointer-events-none" />
+          <CardContent className="p-5 flex items-center justify-between relative z-10">
+            <div className="flex items-center gap-6">
+              <div className="h-12 w-12 rounded-full bg-purple-500/20 flex items-center justify-center border border-purple-500/30">
+                <Zap className="h-6 w-6 text-purple-400" />
+              </div>
+              <div>
+                <h3 className="text-lg font-bold tracking-tight text-purple-300 flex items-center gap-2">
+                  IMMEDIATE INTERVENTION REQUIRED
+                  <span className="bg-purple-500 text-white text-xs px-2 py-0.5 rounded-full font-mono font-bold shadow-[0_0_10px_rgba(168,85,247,0.6)]">
+                    {liveCounts.immediate} CLIENTS
+                  </span>
+                </h3>
+                <p className="text-sm text-purple-400/80 mt-1 font-mono">
+                  &lt; {settings?.thresholdImmediate ?? 1} DAYS REMAINING — ACTION MANDATORY
+                </p>
+              </div>
+            </div>
+            <Button variant="ghost" className="text-purple-300 hover:text-purple-100 hover:bg-purple-500/20 font-bold tracking-widest text-xs uppercase">
+              {statusFilter === "immediate" ? "View All" : "Filter View"}
+            </Button>
           </CardContent>
         </Card>
       )}
 
-      {/* Client balances table */}
-      <Card className="bg-card/50 backdrop-blur">
-        <CardHeader>
-          <div className="flex flex-wrap gap-3 items-center justify-between">
-            <CardTitle>Client Balances</CardTitle>
-            <div className="flex flex-wrap gap-2">
-              {/* Org search */}
-              <div className="relative">
-                <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
-                <Input
-                  placeholder="Search org or ID..."
-                  value={orgFilter}
-                  onChange={(e) => setOrgFilter(e.target.value)}
-                  className="pl-8 h-9 w-48 bg-background/50 text-sm"
-                />
-              </div>
-              {/* Status filter */}
-              <div className="flex items-center gap-1.5">
-                <Filter className="h-4 w-4 text-muted-foreground" />
-                <Select value={statusFilter} onValueChange={setStatusFilter}>
-                  <SelectTrigger className="h-9 w-36 bg-background/50 text-sm">
-                    <SelectValue placeholder="All statuses" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">All Statuses</SelectItem>
-                    <SelectItem value="ok">OK</SelectItem>
-                    <SelectItem value="warning">Warning</SelectItem>
-                    <SelectItem value="critical">Critical</SelectItem>
-                    <SelectItem value="emergency">Emergency</SelectItem>
-                    <SelectItem value="immediate">Immediate Intervention</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-            </div>
+      {/* Grid Data */}
+      <Card className="bg-card/40 backdrop-blur-md border-border/60 overflow-hidden shadow-sm">
+        <div className="p-4 border-b border-border/60 flex flex-wrap gap-4 items-center justify-between bg-card/60">
+          <div className="flex items-center gap-2">
+            <div className="h-4 w-1 bg-primary rounded-full shadow-[0_0_8px_rgba(var(--primary),0.5)]" />
+            <h2 className="text-sm font-bold tracking-widest text-foreground uppercase">Data Grid</h2>
+            <span className="text-[10px] font-mono text-muted-foreground bg-muted px-2 py-0.5 rounded ml-2">
+              {filteredBalances.length} / {balances?.length ?? 0}
+            </span>
           </div>
-          {(orgFilter || statusFilter !== "all") && (
-            <p className="text-xs text-muted-foreground mt-1">
-              Showing {filteredBalances.length} of {balances?.length ?? 0} clients
-              {orgFilter && <span> · org: "{orgFilter}"</span>}
-              {statusFilter !== "all" && <span> · status: {statusFilter}</span>}
-            </p>
-          )}
-        </CardHeader>
-        <CardContent>
+
+          <div className="flex flex-wrap gap-3">
+            <div className="relative">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground/70" />
+              <Input
+                placeholder="Search ID or Metric..."
+                value={orgFilter}
+                onChange={(e) => setOrgFilter(e.target.value)}
+                className="pl-9 h-9 w-[220px] bg-background/50 border-border/60 font-mono text-xs focus-visible:ring-primary/30"
+                data-testid="input-search-org"
+              />
+            </div>
+            <Select value={statusFilter} onValueChange={setStatusFilter}>
+              <SelectTrigger className="h-9 w-[160px] bg-background/50 border-border/60 font-mono text-xs">
+                <Filter className="h-3.5 w-3.5 mr-2 text-muted-foreground/70" />
+                <SelectValue placeholder="All Nodes" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all" className="font-mono text-xs">All Nodes</SelectItem>
+                <SelectItem value="ok" className="font-mono text-xs text-emerald-400">OK</SelectItem>
+                <SelectItem value="warning" className="font-mono text-xs text-amber-400">Warning</SelectItem>
+                <SelectItem value="critical" className="font-mono text-xs text-rose-500">Critical</SelectItem>
+                <SelectItem value="emergency" className="font-mono text-xs text-pink-500">Emergency</SelectItem>
+                <SelectItem value="immediate" className="font-mono text-xs text-purple-400">Immediate</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+        </div>
+
+        <div className="overflow-x-auto">
           <Table>
             <TableHeader>
               <TableRow className="border-border/50 hover:bg-transparent">
-                <SortableHead col="metric" label="Metric/Client" sortCol={sortCol} sortDir={sortDir} onSort={handleSort} align="left" />
-                <TableHead className="text-muted-foreground text-xs font-medium w-20">ID</TableHead>
+                <SortableHead col="metric" label="Metric ID" sortCol={sortCol} sortDir={sortDir} onSort={handleSort} align="left" />
+                <TableHead className="text-muted-foreground/70 text-[11px] font-semibold uppercase tracking-wider w-20 bg-card/40">FIN ID</TableHead>
                 <SortableHead col="remainingBalance" label="Balance" sortCol={sortCol} sortDir={sortDir} onSort={handleSort} align="right" />
-                <SortableHead col="dailyConsumption" label="Avg/Day (prev. mo.)" sortCol={sortCol} sortDir={sortDir} onSort={handleSort} align="right" title="Average daily consumption based on the previous 30 days" />
+                <SortableHead col="dailyConsumption" label="Avg Rate/D" sortCol={sortCol} sortDir={sortDir} onSort={handleSort} align="right" title="Average daily consumption based on the previous 30 days" />
                 <SortableHead col="historyCoverageDays" label="History" sortCol={sortCol} sortDir={sortDir} onSort={handleSort} align="right" title="Valid complete daily intervals in the latest contiguous history run" />
-                <SortableHead col="dailyBalanceChange" label="Balance Δ" sortCol={sortCol} sortDir={sortDir} onSort={handleSort} align="right" title="Yesterday's balance movement versus the prior day" />
-                <SortableHead col="daysRemaining" label="Est. Days" sortCol={sortCol} sortDir={sortDir} onSort={handleSort} align="right" title="Estimated days remaining based on average daily consumption rate" />
-                <SortableHead col="severity" label="Status" sortCol={sortCol} sortDir={sortDir} onSort={handleSort} align="left" />
-                <SortableHead col="lastUpdated" label="Last Updated" sortCol={sortCol} sortDir={sortDir} onSort={handleSort} align="right" />
+                <SortableHead col="dailyBalanceChange" label="Day Δ" sortCol={sortCol} sortDir={sortDir} onSort={handleSort} align="right" title="Yesterday's balance movement versus the prior day" />
+                <SortableHead col="daysRemaining" label="Est. TTL" sortCol={sortCol} sortDir={sortDir} onSort={handleSort} align="right" title="Estimated days remaining based on average daily consumption rate" />
+                <SortableHead col="severity" label="Status Node" sortCol={sortCol} sortDir={sortDir} onSort={handleSort} align="left" />
+                <SortableHead col="lastUpdated" label="Timestamp" sortCol={sortCol} sortDir={sortDir} onSort={handleSort} align="right" />
               </TableRow>
             </TableHeader>
             <TableBody>
               {isLoadingBalances ? (
-                Array.from({ length: 5 }).map((_, i) => (
-                  <TableRow key={i} className="border-border/50">
-                    <TableCell><Skeleton className="h-5 w-32" /></TableCell>
-                    <TableCell><Skeleton className="h-5 w-12" /></TableCell>
-                    <TableCell className="text-right"><Skeleton className="h-5 w-20 ml-auto" /></TableCell>
-                    <TableCell className="text-right"><Skeleton className="h-5 w-20 ml-auto" /></TableCell>
-                    <TableCell className="text-right"><Skeleton className="h-5 w-16 ml-auto" /></TableCell>
-                    <TableCell className="text-right"><Skeleton className="h-5 w-14 ml-auto" /></TableCell>
-                    <TableCell className="text-right"><Skeleton className="h-5 w-16 ml-auto" /></TableCell>
-                    <TableCell><Skeleton className="h-5 w-24" /></TableCell>
-                    <TableCell className="text-right"><Skeleton className="h-5 w-24 ml-auto" /></TableCell>
+                Array.from({ length: 8 }).map((_, i) => (
+                  <TableRow key={i} className="border-border/40">
+                    <TableCell><Skeleton className="h-4 w-32 bg-border/40" /></TableCell>
+                    <TableCell><Skeleton className="h-4 w-12 bg-border/40" /></TableCell>
+                    <TableCell className="text-right"><Skeleton className="h-4 w-20 ml-auto bg-border/40" /></TableCell>
+                    <TableCell className="text-right"><Skeleton className="h-4 w-16 ml-auto bg-border/40" /></TableCell>
+                    <TableCell className="text-right"><Skeleton className="h-4 w-10 ml-auto bg-border/40" /></TableCell>
+                    <TableCell className="text-right"><Skeleton className="h-4 w-14 ml-auto bg-border/40" /></TableCell>
+                    <TableCell className="text-right"><Skeleton className="h-5 w-12 ml-auto bg-border/40" /></TableCell>
+                    <TableCell><Skeleton className="h-5 w-24 bg-border/40" /></TableCell>
+                    <TableCell className="text-right"><Skeleton className="h-4 w-20 ml-auto bg-border/40" /></TableCell>
                   </TableRow>
                 ))
               ) : filteredBalances.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={9} className="h-24 text-center text-muted-foreground">
-                    {balances?.length === 0
-                      ? "No client balance data available. Check Grafana connection in Settings."
-                      : "No clients match the current filters."}
+                  <TableCell colSpan={9} className="h-40 text-center">
+                    <div className="flex flex-col items-center justify-center text-muted-foreground gap-3">
+                      <div className="h-12 w-12 rounded-full border border-dashed border-muted-foreground/30 flex items-center justify-center">
+                        <Search className="h-5 w-5 text-muted-foreground/50" />
+                      </div>
+                      <p className="font-mono text-sm">
+                        {balances?.length === 0
+                          ? "NO SIGNAL. Verify connection in settings."
+                          : "ZERO MATCHES for current filter set."}
+                      </p>
+                    </div>
                   </TableCell>
                 </TableRow>
               ) : (
-                filteredBalances.map((balance: ClientBalance) => (
-                  <TableRow
-                    key={balance.metric}
-                    className="border-border/50 hover:bg-muted/50 transition-colors cursor-pointer group"
-                    onClick={() => setSelectedClient({ metric: balance.metric, severity: balance.severity })}
-                    title="Click to view consumption history"
-                  >
-                    <TableCell className="font-mono text-sm font-medium">
-                      <span className="flex items-center gap-1.5">
-                        {balance.metric}
-                        <BarChart2 className="w-3.5 h-3.5 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity" />
-                      </span>
-                    </TableCell>
-                    <TableCell className="text-xs text-muted-foreground font-mono w-20">
-                      {balance.financeId ?? <span className="opacity-40">—</span>}
-                    </TableCell>
-                    <TableCell className="text-right font-mono">
-                      <span className={balance.remainingBalance < 0 ? "text-red-400" : ""}>
-                        {formatBalance(balance.remainingBalance)}
-                      </span>
-                    </TableCell>
-                    <TableCell className="text-right font-mono">
-                      {balance.dailyConsumption > 0 ? (
-                        formatBalance(balance.dailyConsumption) + "/d"
-                      ) : balance.recentDailyConsumption > 0 ? (
-                        <span title="Based on last 7-day rate (prev. month data unavailable)">
-                          ~{formatBalance(balance.recentDailyConsumption)}/d
-                          <span className="text-muted-foreground text-[10px] ml-0.5">(7d)</span>
+                filteredBalances.map((balance: ClientBalance, idx) => {
+                  const styles = getSeverityStyles(balance.severity);
+                  return (
+                    <TableRow
+                      key={balance.metric}
+                      className="border-border/40 hover:bg-white/[0.02] transition-colors cursor-pointer group relative"
+                      onClick={() => setSelectedClient({ metric: balance.metric, severity: balance.severity })}
+                      title="Click to view detailed telemetry"
+                      data-testid={`row-balance-${idx}`}
+                    >
+                      {/* Hover Indicator */}
+                      <td className="absolute left-0 top-0 bottom-0 w-0.5 bg-transparent group-hover:bg-primary transition-colors" />
+
+                      <TableCell className="font-mono text-xs font-semibold">
+                        <span className="flex items-center gap-2">
+                          <span className="truncate max-w-[200px] text-foreground/90">{balance.metric}</span>
+                          <BarChart2 className="w-3.5 h-3.5 text-primary opacity-0 group-hover:opacity-100 transition-opacity shrink-0 shadow-[0_0_8px_rgba(var(--primary),0.5)] rounded-sm" />
                         </span>
-                      ) : (
-                        <span className="text-muted-foreground text-sm">—</span>
-                      )}
-                    </TableCell>
-                    <TableCell className="text-right">
-                      {balance.historyCoverageDays > 0 ? (
-                        <span className="font-mono text-xs">{balance.historyCoverageDays}d</span>
-                      ) : (
-                        <span className="text-muted-foreground text-xs">—</span>
-                      )}
-                    </TableCell>
-                    <TableCell className="text-right">
-                      {balance.dailyBalanceChange === null ? (
-                        <span className="text-muted-foreground text-xs">—</span>
-                      ) : (
-                        <span className={`font-mono text-xs font-semibold ${
-                          balance.dailyBalanceChange > 0
-                            ? "text-green-400"
-                            : balance.dailyBalanceChange < 0
-                            ? "text-red-400"
-                            : "text-muted-foreground"
-                        }`}>
-                          {balance.dailyBalanceChange > 0 ? "+" : ""}
-                          {formatBalance(balance.dailyBalanceChange)}
+                      </TableCell>
+                      <TableCell className="text-[10px] text-muted-foreground/60 font-mono w-20">
+                        {balance.financeId ?? <span className="opacity-30">---</span>}
+                      </TableCell>
+                      <TableCell className="text-right font-mono text-xs">
+                        <span className={balance.remainingBalance < 0 ? "text-rose-400 font-bold" : "text-foreground/80"}>
+                          {formatBalance(balance.remainingBalance)}
                         </span>
-                      )}
-                    </TableCell>
-                    <TableCell className="text-right font-bold text-lg">
-                      <TooltipProvider delayDuration={200}>
-                        <Tooltip>
-                          <TooltipTrigger asChild>
-                            <span className="inline-flex items-center gap-1 cursor-help">
-                              {balance.daysRemaining < 0 ? (
-                                <span className="text-muted-foreground font-normal text-sm">N/A</span>
-                              ) : (
-                                <span className="inline-flex items-baseline gap-1">
-                                  {balance.daysRemaining}
-                                  {balance.usingFallbackRate && (
-                                    <span className="text-[10px] font-normal text-amber-400 leading-none">~</span>
-                                  )}
-                                </span>
-                              )}
-                              <Info className="w-3 h-3 text-muted-foreground opacity-60" />
-                            </span>
-                          </TooltipTrigger>
-                          <TooltipContent
-                            side="left"
-                            className="max-w-[240px] p-0 bg-popover text-popover-foreground border border-border/60 shadow-lg"
-                          >
-                            <div className="p-3 space-y-2.5">
-                              <p className="text-xs font-semibold text-foreground border-b border-border/40 pb-1.5">
-                                Est. Days Breakdown
-                              </p>
-                              {balance.usingFallbackRate && (
-                                <p className="text-[10px] text-amber-400 leading-snug">
-                                  ⚠ Estimated from 7-day rate — prev. month data unavailable
+                      </TableCell>
+                      <TableCell className="text-right font-mono text-xs text-muted-foreground/80">
+                        {balance.dailyConsumption > 0 ? (
+                          `${formatBalance(balance.dailyConsumption)}/d`
+                        ) : balance.recentDailyConsumption > 0 ? (
+                          <span title="Based on last 7-day rate (prev. month data unavailable)" className="text-amber-400/80">
+                            ~{formatBalance(balance.recentDailyConsumption)}/d
+                          </span>
+                        ) : (
+                          <span className="opacity-30">---</span>
+                        )}
+                      </TableCell>
+                      <TableCell className="text-right">
+                        {balance.historyCoverageDays > 0 ? (
+                          <span className="font-mono text-[10px] bg-muted/50 px-1.5 py-0.5 rounded text-muted-foreground">
+                            {balance.historyCoverageDays}D
+                          </span>
+                        ) : (
+                          <span className="text-muted-foreground opacity-30 text-xs font-mono">---</span>
+                        )}
+                      </TableCell>
+                      <TableCell className="text-right">
+                        {balance.dailyBalanceChange === null ? (
+                          <span className="text-muted-foreground opacity-30 text-xs font-mono">---</span>
+                        ) : (
+                          <span className={`font-mono text-xs font-bold ${
+                            balance.dailyBalanceChange > 0
+                              ? "text-emerald-400"
+                              : balance.dailyBalanceChange < 0
+                              ? "text-rose-400"
+                              : "text-muted-foreground/60"
+                          }`}>
+                            {balance.dailyBalanceChange > 0 ? "+" : ""}
+                            {formatBalance(balance.dailyBalanceChange)}
+                          </span>
+                        )}
+                      </TableCell>
+                      <TableCell className="text-right font-mono font-bold text-sm">
+                        <TooltipProvider delayDuration={150}>
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <span className={`inline-flex items-center gap-1.5 cursor-help ${balance.daysRemaining < 30 ? "text-foreground" : "text-muted-foreground"}`}>
+                                {balance.daysRemaining < 0 ? (
+                                  <span className="text-muted-foreground/50 font-normal text-xs">N/A</span>
+                                ) : (
+                                  <span className="inline-flex items-baseline gap-0.5">
+                                    {balance.daysRemaining}
+                                    {balance.usingFallbackRate && (
+                                      <span className="text-[10px] font-normal text-amber-500/80 leading-none">~</span>
+                                    )}
+                                  </span>
+                                )}
+                              </span>
+                            </TooltipTrigger>
+                            <TooltipContent
+                              side="left"
+                              className="max-w-[240px] p-0 bg-popover text-popover-foreground border border-border shadow-xl rounded-md overflow-hidden"
+                            >
+                              <div className="p-3 bg-card border-b border-border/50">
+                                <p className="text-[10px] font-bold tracking-widest text-foreground uppercase flex items-center gap-1.5">
+                                  <Info className="w-3 h-3 text-primary" />
+                                  TTL Breakdown
                                 </p>
-                              )}
-                              <div className="flex justify-between gap-4 text-xs">
-                                <span className="text-muted-foreground">Prev. month rate</span>
-                                <span className="font-mono font-semibold">
-                                  {balance.dailyConsumption > 0 ? `${balance.daysRemaining < 0 ? "N/A" : balance.daysRemaining + "d"}` : "—"}
-                                </span>
                               </div>
-                              <div className="flex justify-between gap-4 text-xs">
-                                <span className="text-muted-foreground">Last 7-day rate</span>
-                                <span className={`font-mono font-semibold ${
-                                  balance.daysRemainingRecent < 0
-                                    ? "text-muted-foreground"
-                                    : balance.daysRemainingRecent < (balance.daysRemaining < 0 ? Infinity : balance.daysRemaining)
-                                    ? "text-red-400"
-                                    : "text-green-400"
-                                }`}>
-                                  {balance.daysRemainingRecent < 0 ? "N/A" : `${balance.daysRemainingRecent}d`}
-                                </span>
-                              </div>
-                              <div className="border-t border-border/40 pt-1.5 space-y-1">
-                                <div className="flex justify-between gap-4 text-[10px] text-muted-foreground">
-                                  <span>Avg/day (prev. mo.)</span>
-                                  <span className="font-mono">{balance.dailyConsumption > 0 ? formatBalance(balance.dailyConsumption) + "/d" : "—"}</span>
+                              <div className="p-3 space-y-2.5">
+                                {balance.usingFallbackRate && (
+                                  <div className="bg-amber-500/10 border border-amber-500/20 p-2 rounded text-[10px] text-amber-400 leading-relaxed font-mono">
+                                    <TriangleAlert className="w-3 h-3 inline mr-1 -mt-0.5" />
+                                    Estimated from 7-day rate (prev. month data unavailable)
+                                  </div>
+                                )}
+                                <div className="flex justify-between gap-4 text-xs">
+                                  <span className="text-muted-foreground">Burn Rate</span>
+                                  <span className="font-mono font-semibold text-foreground">
+                                    {balance.usingFallbackRate
+                                      ? formatBalance(balance.recentDailyConsumption)
+                                      : formatBalance(balance.dailyConsumption)}/d
+                                  </span>
                                 </div>
-                                <div className="flex justify-between gap-4 text-[10px] text-muted-foreground">
-                                  <span>Avg/day (last 7d)</span>
-                                  <span className="font-mono">{balance.recentDailyConsumption > 0 ? formatBalance(balance.recentDailyConsumption) + "/d" : "—"}</span>
+                                <div className="flex justify-between gap-4 text-xs">
+                                  <span className="text-muted-foreground">Balance</span>
+                                  <span className="font-mono font-semibold text-foreground">
+                                    {formatBalance(balance.remainingBalance)}
+                                  </span>
+                                </div>
+                                <div className="pt-2 mt-2 border-t border-border/40 flex justify-between gap-4 text-xs">
+                                  <span className="text-muted-foreground font-semibold">Projected TTL</span>
+                                  <span className="font-mono font-bold text-primary">
+                                    {balance.daysRemaining < 0 ? "UNKNOWN" : `${balance.daysRemaining} DAYS`}
+                                  </span>
                                 </div>
                               </div>
-                            </div>
-                          </TooltipContent>
-                        </Tooltip>
-                      </TooltipProvider>
-                    </TableCell>
-                    <TableCell>
-                      <Badge variant="outline" className={`uppercase tracking-wider font-bold ${getSeverityColor(balance.severity)}`}>
-                        {getSeverityIcon(balance.severity)}
-                        {balance.severity}
-                      </Badge>
-                    </TableCell>
-                    <TableCell className="text-right text-xs text-muted-foreground">
-                      {balance.lastUpdated ? format(new Date(balance.lastUpdated), "MMM d, HH:mm") : "-"}
-                    </TableCell>
-                  </TableRow>
-                ))
+                            </TooltipContent>
+                          </Tooltip>
+                        </TooltipProvider>
+                      </TableCell>
+                      <TableCell>
+                        <div className={`inline-flex items-center px-2 py-1 rounded border text-[10px] font-bold tracking-wider uppercase font-mono ${styles.bg} ${styles.text} ${styles.border}`}>
+                          {getSeverityIcon(balance.severity)}
+                          {balance.severity}
+                        </div>
+                      </TableCell>
+                      <TableCell className="text-right font-mono text-[10px] text-muted-foreground/50">
+                        {balance.lastUpdated ? format(new Date(balance.lastUpdated), "HH:mm") : "---"}
+                      </TableCell>
+                    </TableRow>
+                  );
+                })
               )}
             </TableBody>
           </Table>
-        </CardContent>
+        </div>
       </Card>
 
       <OrganizationStudyDialog
@@ -665,7 +760,7 @@ export default function Dashboard() {
         fallbackSeverity={selectedClient?.severity ?? "ok"}
         onClose={() => setSelectedClient(null)}
         onSelectMetric={(metric) => {
-          const existing = balances?.find((balance) => balance.metric === metric);
+          const existing = balances?.find((b) => b.metric === metric);
           setSelectedClient({ metric, severity: existing?.severity ?? "ok" });
         }}
       />
