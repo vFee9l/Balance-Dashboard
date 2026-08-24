@@ -25,6 +25,16 @@ const calculatedSummary = frame(
   ],
 );
 
+const standardSummary = frame(
+  ["metric", "finance_id", "uses_org_balance", "Remaining_Balance"],
+  [
+    ["Standard Organization"],
+    ["2042"],
+    [0],
+    [12_000],
+  ],
+);
+
 const hierarchyRatesIncludingChild = frame(
   [
     "metric",
@@ -178,6 +188,36 @@ test("organization study reports missing hierarchy history as a data-quality sta
     "Only 0 days of usable history are available.",
     "No forecast is shown because the full hierarchy has no complete consecutive daily consumption window.",
   ]);
+});
+
+test("standard organization with complete history keeps a numeric estimate", () => {
+  const start = Date.UTC(2026, 7, 17);
+  const history = frame(
+    ["date", "balance", "consumption", "is_complete"],
+    [
+      Array.from({ length: 7 }, (_, day) => new Date(start + day * 86_400_000).toISOString()),
+      Array.from({ length: 7 }, (_, day) => 12_700 - day * 100),
+      Array.from({ length: 7 }, () => 100),
+      Array.from({ length: 7 }, () => 1),
+    ],
+  );
+
+  const study = buildOrganizationStudy({
+    summaryFrames: [standardSummary],
+    childFrames: [],
+    historyFrames: [history],
+    metric: "Standard Organization",
+    fetchedAt: fetchWindow,
+  });
+
+  assert.ok(study);
+  assert.equal(study.remainingBalance, 12_000);
+  assert.equal(study.children.length, 0);
+  assert.equal(study.coverageDays, 7);
+  assert.equal(study.rateWindowDays, 7);
+  assert.equal(study.averageDailyConsumption, 100);
+  assert.equal(study.daysRemaining, 120);
+  assert.equal(study.rateBasis, "7-day fallback average (7 valid daily intervals)");
 });
 
 test("organization study never combines separate history runs for a forecast", () => {
