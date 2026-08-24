@@ -240,6 +240,39 @@ export interface ConsumptionHistory {
   previousMonthLabel: string;
 }
 
+export interface GrafanaOrganization {
+  metric: string;
+  /** @nullable */
+  financeId: string | null;
+  usesOrgBalance: boolean;
+  remainingBalance: number;
+}
+
+export interface OrganizationStudyPoint {
+  date: string;
+  balance: number;
+  consumption: number;
+}
+
+export interface OrganizationStudy {
+  metric: string;
+  /** @nullable */
+  financeId: string | null;
+  usesOrgBalance: boolean;
+  remainingBalance: number;
+  dailyHistory: OrganizationStudyPoint[];
+  averageDailyConsumption: number;
+  rateWindowDays: number;
+  coverageDays: number;
+  /** Estimated days remaining, or -1 when no usable consumption rate exists */
+  daysRemaining: number;
+  severity: string;
+  /** The study period used for the selected average consumption rate */
+  rateBasis: string;
+  dataQuality: string[];
+  lastUpdated: string;
+}
+
 export interface AlertDetail {
   metric: string;
   daysRemaining: number;
@@ -282,6 +315,13 @@ export interface AlertSummary {
 export type GetConsumptionHistoryParams = {
 /**
  * Client/org name
+ */
+metric: string;
+};
+
+export type GetGrafanaOrganizationStudyParams = {
+/**
+ * Main organization name
  */
 metric: string;
 };

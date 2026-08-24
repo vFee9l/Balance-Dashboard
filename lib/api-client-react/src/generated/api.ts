@@ -33,7 +33,10 @@ import type {
   ContactUpdate,
   ErrorResponse,
   GetConsumptionHistoryParams,
+  GetGrafanaOrganizationStudyParams,
+  GrafanaOrganization,
   HealthStatus,
+  OrganizationStudy,
   OtpInput,
   OtpResult,
   Settings,
@@ -1065,6 +1068,167 @@ export function useGetConsumptionHistory<TData = Awaited<ReturnType<typeof getCo
  ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
 
   const queryOptions = getGetConsumptionHistoryQueryOptions(params,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+
+
+
+
+
+
+export const getListGrafanaOrganizationsUrl = () => {
+
+
+
+
+  return `/api/grafana/organizations`
+}
+
+/**
+ * @summary List selectable main organizations from Grafana
+ */
+export const listGrafanaOrganizations = async ( options?: RequestInit): Promise<GrafanaOrganization[]> => {
+
+  return customFetch<GrafanaOrganization[]>(getListGrafanaOrganizationsUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getListGrafanaOrganizationsQueryKey = () => {
+    return [
+    `/api/grafana/organizations`
+    ] as const;
+    }
+
+
+export const getListGrafanaOrganizationsQueryOptions = <TData = Awaited<ReturnType<typeof listGrafanaOrganizations>>, TError = ErrorType<ErrorResponse>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listGrafanaOrganizations>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getListGrafanaOrganizationsQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof listGrafanaOrganizations>>> = ({ signal }) => listGrafanaOrganizations({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof listGrafanaOrganizations>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type ListGrafanaOrganizationsQueryResult = NonNullable<Awaited<ReturnType<typeof listGrafanaOrganizations>>>
+export type ListGrafanaOrganizationsQueryError = ErrorType<ErrorResponse>
+
+
+/**
+ * @summary List selectable main organizations from Grafana
+ */
+
+export function useListGrafanaOrganizations<TData = Awaited<ReturnType<typeof listGrafanaOrganizations>>, TError = ErrorType<ErrorResponse>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listGrafanaOrganizations>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getListGrafanaOrganizationsQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+
+
+
+
+
+
+export const getGetGrafanaOrganizationStudyUrl = (params: GetGrafanaOrganizationStudyParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : value.toString())
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/api/grafana/organization-study?${stringifiedParams}` : `/api/grafana/organization-study`
+}
+
+/**
+ * @summary Get Grafana-aligned balance and 90-day consumption study for an organization
+ */
+export const getGrafanaOrganizationStudy = async (params: GetGrafanaOrganizationStudyParams, options?: RequestInit): Promise<OrganizationStudy> => {
+
+  return customFetch<OrganizationStudy>(getGetGrafanaOrganizationStudyUrl(params),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetGrafanaOrganizationStudyQueryKey = (params?: GetGrafanaOrganizationStudyParams,) => {
+    return [
+    `/api/grafana/organization-study`, ...(params ? [params] : [])
+    ] as const;
+    }
+
+
+export const getGetGrafanaOrganizationStudyQueryOptions = <TData = Awaited<ReturnType<typeof getGrafanaOrganizationStudy>>, TError = ErrorType<ErrorResponse>>(params: GetGrafanaOrganizationStudyParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getGrafanaOrganizationStudy>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetGrafanaOrganizationStudyQueryKey(params);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getGrafanaOrganizationStudy>>> = ({ signal }) => getGrafanaOrganizationStudy(params, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getGrafanaOrganizationStudy>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetGrafanaOrganizationStudyQueryResult = NonNullable<Awaited<ReturnType<typeof getGrafanaOrganizationStudy>>>
+export type GetGrafanaOrganizationStudyQueryError = ErrorType<ErrorResponse>
+
+
+/**
+ * @summary Get Grafana-aligned balance and 90-day consumption study for an organization
+ */
+
+export function useGetGrafanaOrganizationStudy<TData = Awaited<ReturnType<typeof getGrafanaOrganizationStudy>>, TError = ErrorType<ErrorResponse>>(
+ params: GetGrafanaOrganizationStudyParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getGrafanaOrganizationStudy>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetGrafanaOrganizationStudyQueryOptions(params,options)
 
   const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
 

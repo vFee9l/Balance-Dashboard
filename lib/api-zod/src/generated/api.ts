@@ -310,6 +310,46 @@ export const GetConsumptionHistoryResponse = zod.object({
 
 
 /**
+ * @summary List selectable main organizations from Grafana
+ */
+export const ListGrafanaOrganizationsResponseItem = zod.object({
+  "metric": zod.string(),
+  "financeId": zod.string().nullable(),
+  "usesOrgBalance": zod.boolean(),
+  "remainingBalance": zod.number()
+})
+export const ListGrafanaOrganizationsResponse = zod.array(ListGrafanaOrganizationsResponseItem)
+
+
+/**
+ * @summary Get Grafana-aligned balance and 90-day consumption study for an organization
+ */
+export const GetGrafanaOrganizationStudyQueryParams = zod.object({
+  "metric": zod.coerce.string().describe('Main organization name')
+})
+
+export const GetGrafanaOrganizationStudyResponse = zod.object({
+  "metric": zod.string(),
+  "financeId": zod.string().nullable(),
+  "usesOrgBalance": zod.boolean(),
+  "remainingBalance": zod.number(),
+  "dailyHistory": zod.array(zod.object({
+  "date": zod.string(),
+  "balance": zod.number(),
+  "consumption": zod.number()
+})),
+  "averageDailyConsumption": zod.number(),
+  "rateWindowDays": zod.number(),
+  "coverageDays": zod.number(),
+  "daysRemaining": zod.number().describe('Estimated days remaining, or -1 when no usable consumption rate exists'),
+  "severity": zod.string(),
+  "rateBasis": zod.string().describe('The study period used for the selected average consumption rate'),
+  "dataQuality": zod.array(zod.string()),
+  "lastUpdated": zod.string()
+})
+
+
+/**
  * @summary Fetch current balance data from Grafana
  */
 export const GetGrafanaBalancesResponseItem = zod.object({

@@ -8,3 +8,21 @@ The linked Grafana dashboard returns organization detail rows with hierarchy, Fi
 **Why:** The alert system needs per-organization balance, long-term/recent consumption, and day-over-day consumption together. Treating the dashboard detail result as if it already contained all of those metrics would silently classify incomplete records.
 
 **How to apply:** When integrating or validating this dashboard, distinguish expected sub-organization FinanceAccountId gaps from main-organization gaps, preserve the Main/Sub and 0/1 balance-mode categories, and explicitly join or query the separate consumption panels before calculating alert severity.
+
+**Live total timing:** The dashboard's calculated hierarchy `TotalBalance` is live and can change between consecutive requests. Compare it against the app from the same refresh window, and render the study's live balance without compact rounding.
+
+**Why:** A static expected number can look like a mismatch even when both systems are reading the same moving balance source.
+
+**How to apply:** Use the Grafana summary procedure as the source of truth for operational balances and expose a full precision, separator-formatted value in any direct comparison view.
+
+**Hierarchy history completeness:** A live main-organization total can include direct-balance children that have no corresponding daily snapshot history. Do not calculate a forecast from only the parent or an incomplete subset.
+
+**Why:** Combining a rolled-up live total with parent-only consumption produces a materially false days-remaining estimate.
+
+**How to apply:** Aggregate daily values by all records rolling up to the main organization and their individual balance modes. Exclude partial hierarchy days from the rate, report the coverage limitation, and show no forecast when no complete history remains.
+
+**Daily interval validity:** A daily consumption delta is valid only when its complete hierarchy snapshots are exactly one calendar day apart.
+
+**Why:** A gap between retained snapshots turns a multi-day balance drop into an overstated single-day rate.
+
+**How to apply:** Filter incomplete hierarchy dates before calculating the lag, then exclude any remaining lag pair whose dates are not adjacent from all rates, daily deltas, and forecast logic.

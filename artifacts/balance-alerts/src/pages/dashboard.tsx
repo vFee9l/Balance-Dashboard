@@ -6,6 +6,8 @@ import {
   getGetAlertSummaryQueryKey,
   useTriggerAlerts,
   useGetSettings,
+  useListGrafanaOrganizations,
+  getListGrafanaOrganizationsQueryKey,
 } from "@workspace/api-client-react";
 
 type ClientBalance = {
@@ -39,7 +41,7 @@ import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { AlertCircle, CheckCircle2, ShieldAlert, Activity, RefreshCw, Search, Filter, BarChart2, Info, ArrowUp, ArrowDown, ArrowUpDown } from "lucide-react";
 import { format } from "date-fns";
-import ConsumptionHistoryDialog from "@/components/ConsumptionHistoryDialog";
+import OrganizationStudyDialog from "@/components/OrganizationStudyDialog";
 import {
   Tooltip,
   TooltipContent,
@@ -121,6 +123,13 @@ export default function Dashboard() {
   });
 
   const { data: settings } = useGetSettings();
+  const { data: organizationDirectory, isLoading: isLoadingOrganizationDirectory } = useListGrafanaOrganizations({
+    query: {
+      staleTime: 60_000,
+      queryKey: getListGrafanaOrganizationsQueryKey(),
+    },
+  });
+  const organizationList = Array.isArray(organizationDirectory) ? organizationDirectory : [];
 
   const { data: summary, isLoading: isLoadingSummary } = useGetAlertSummary({
     query: {
@@ -134,6 +143,7 @@ export default function Dashboard() {
   const handleRefresh = () => {
     queryClient.invalidateQueries({ queryKey: getGetGrafanaBalancesQueryKey() });
     queryClient.invalidateQueries({ queryKey: getGetAlertSummaryQueryKey() });
+    queryClient.invalidateQueries({ queryKey: getListGrafanaOrganizationsQueryKey() });
   };
 
   const handleTriggerAlerts = async () => {
@@ -258,6 +268,29 @@ export default function Dashboard() {
           <p className="text-muted-foreground mt-1">Live monitoring of client SMS credit balances.</p>
         </div>
         <div className="flex flex-wrap gap-2 items-center">
+            <Select
+              value={selectedClient?.metric ?? ""}
+              onValueChange={(metric) => {
+                const existing = balances?.find((balance) => balance.metric === metric);
+                setSelectedClient({ metric, severity: existing?.severity ?? "ok" });
+              }}
+            >
+              <SelectTrigger className="h-9 w-52 bg-background/50 text-sm">
+                <SelectValue placeholder="Organization study" />
+              </SelectTrigger>
+              <SelectContent>
+                {isLoadingOrganizationDirectory ? (
+                  <SelectItem value="loading" disabled>Loading organizations…</SelectItem>
+                ) : (
+                  organizationList.map((organization) => (
+                    <SelectItem key={organization.metric} value={organization.metric}>
+                      {organization.metric}
+                    </SelectItem>
+                  ))
+                )}
+              </SelectContent>
+            </Select>
+
           {/* Auto-refresh selector */}
           <div className="flex items-center gap-2">
             <RefreshCw className={`h-4 w-4 text-muted-foreground ${isFetching ? "animate-spin" : ""}`} />
@@ -649,10 +682,14 @@ export default function Dashboard() {
         </CardContent>
       </Card>
 
-      <ConsumptionHistoryDialog
+      <OrganizationStudyDialog
         metric={selectedClient?.metric ?? null}
-        severity={selectedClient?.severity ?? "ok"}
+        fallbackSeverity={selectedClient?.severity ?? "ok"}
         onClose={() => setSelectedClient(null)}
+        onSelectMetric={(metric) => {
+          const existing = balances?.find((balance) => balance.metric === metric);
+          setSelectedClient({ metric, severity: existing?.severity ?? "ok" });
+        }}
       />
     </div>
   );

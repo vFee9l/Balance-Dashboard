@@ -279,6 +279,65 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
 
+  /grafana/organizations:
+    get:
+      operationId: listGrafanaOrganizations
+      tags: [grafana]
+      summary: List selectable main organizations from Grafana
+      responses:
+        "200":
+          description: Main organization directory with calculated balances
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/GrafanaOrganization"
+        "502":
+          description: Grafana unreachable
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /grafana/organization-study:
+    get:
+      operationId: getGrafanaOrganizationStudy
+      tags: [grafana]
+      summary: Get Grafana-aligned balance and 90-day consumption study for an organization
+      parameters:
+        - name: metric
+          in: query
+          required: true
+          schema:
+            type: string
+          description: Main organization name
+      responses:
+        "200":
+          description: Organization balance study
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OrganizationStudy"
+        "400":
+          description: Missing or invalid organization name
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "404":
+          description: Organization not found in Grafana
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "502":
+          description: Grafana unreachable
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
   /grafana/balances:
     get:
       operationId: getGrafanaBalances
@@ -698,6 +757,67 @@ components:
         currentMonthLabel:
           type: string
         previousMonthLabel:
+          type: string
+
+    GrafanaOrganization:
+      type: object
+      required: [metric, financeId, usesOrgBalance, remainingBalance]
+      properties:
+        metric:
+          type: string
+        financeId:
+          type: ["string", "null"]
+        usesOrgBalance:
+          type: boolean
+        remainingBalance:
+          type: number
+
+    OrganizationStudyPoint:
+      type: object
+      required: [date, balance, consumption]
+      properties:
+        date:
+          type: string
+        balance:
+          type: number
+        consumption:
+          type: number
+
+    OrganizationStudy:
+      type: object
+      required: [metric, financeId, usesOrgBalance, remainingBalance, dailyHistory, averageDailyConsumption, rateWindowDays, coverageDays, daysRemaining, severity, rateBasis, dataQuality, lastUpdated]
+      properties:
+        metric:
+          type: string
+        financeId:
+          type: ["string", "null"]
+        usesOrgBalance:
+          type: boolean
+        remainingBalance:
+          type: number
+        dailyHistory:
+          type: array
+          items:
+            $ref: "#/components/schemas/OrganizationStudyPoint"
+        averageDailyConsumption:
+          type: number
+        rateWindowDays:
+          type: integer
+        coverageDays:
+          type: integer
+        daysRemaining:
+          type: number
+          description: Estimated days remaining, or -1 when no usable consumption rate exists
+        severity:
+          type: string
+        rateBasis:
+          type: string
+          description: The study period used for the selected average consumption rate
+        dataQuality:
+          type: array
+          items:
+            type: string
+        lastUpdated:
           type: string
 
     AlertTriggerResult:

@@ -2,6 +2,11 @@ import { Router } from "express";
 import { sql } from "drizzle-orm";
 import { fetch as undiciFetch, Agent } from "undici";
 import { db, settingsTable, alertHistoryTable, contactsTable, clientDailyConsumptionTable } from "@workspace/db";
+import {
+  GetGrafanaOrganizationStudyQueryParams,
+  GetGrafanaOrganizationStudyResponse,
+  ListGrafanaOrganizationsResponse,
+} from "@workspace/api-zod";
 import { logger } from "../lib/logger";
 import { recordGrafanaFetch } from "../lib/healthTracker.js";
 import nodemailer from "nodemailer";
@@ -10,6 +15,8 @@ import nodemailer from "nodemailer";
 // Grafana at grafana.t2.sa can be slow to accept connections under load.
 // Both fetch and Agent are from the same undici package to avoid version mismatch.
 const grafanaAgent = new Agent({ connect: { timeout: 30_000 } });
+const grafanaDatasource = { type: "mssql", uid: "af0fc2y09shdsd" };
+const grafanaRootOrganizationId = "156347F0-A8AC-45EA-85AD-701F4F925F5C";
 
 const router = Router();
 
@@ -41,6 +48,49 @@ interface GrafanaQueryResponse {
   };
 }
 
+type GrafanaRow = Record<string, unknown>;
+
+interface DashboardOrganization {
+  metric: string;
+  financeId: string | null;
+  usesOrgBalance: boolean;
+  remainingBalance: number;
+}
+
+interface OrganizationStudyPoint {
+  date: string;
+  balance: number;
+  consumption: number;
+}
+
+// This is the same calculated hierarchy total used by Grafana dashboard th4qhrb.
+// In particular, it correctly rolls AlRajhi's sub-organization balances into the
+// selected main organization's live balance.
+const dashboardSummarySql = `
+  DECLARE @data TABLE (
+    MainOrganizationId NVARCHAR(200),
+    MainOrganisationName NVARCHAR(200),
+    MainFinanceAccountId NVARCHAR(200),
+    MainUsesOrgBalance INT,
+    MainOwnBalance DECIMAL(18,3),
+    SubOrganizationBalance DECIMAL(18,3),
+    SubOrganizationCount INT,
+    TotalBalance DECIMAL(18,3)
+  )
+  INSERT INTO @data
+  EXEC [RiCH-Web].[dbo].[usp_GetClientBalancesDashboard]
+    @RootOrganizationId = '${grafanaRootOrganizationId}'
+
+  SELECT
+    MainOrganisationName AS metric,
+    MainFinanceAccountId AS finance_id,
+    MainUsesOrgBalance AS uses_org_balance,
+    TotalBalance AS Remaining_Balance
+  FROM @data
+  WHERE MainOrganisationName IS NOT NULL
+  ORDER BY MainOrganisationName
+`;
+
 async function fetchGrafanaBalances(): Promise<ClientBalanceData[]> {
   const rows = await db.select().from(settingsTable).limit(1);
   const settings = rows[0];
@@ -68,29 +118,10 @@ async function fetchGrafanaBalances(): Promise<ClientBalanceData[]> {
     )
   `;
 
-  // Query A: Most recent remaining balance per org — uses BalanceHistory-Hour for live data.
-  // Takes the latest hourly snapshot per org (ROW_NUMBER rn=1), matching exactly what
-  // the Grafana stat panel shows.
-  const balanceSql = `
-    WITH ${orgConfigCte},
-    Latest AS (
-      SELECT
-        o.name AS metric,
-        CASE WHEN oc.id IS NOT NULL THEN b.TotalOrganizationBalance ELSE b.TotalUserBalance END AS Remaining_Balance,
-        o.FinanceAccountId AS finance_id,
-        ROW_NUMBER() OVER (PARTITION BY o.name ORDER BY b.CreatedDate DESC) AS rn
-      FROM [RiCH-Web-2].[dbo].[BalanceHistory-Hour] b
-      JOIN [RiCH-Web].[dbo].[Organisation] o ON o.id = b.id
-      LEFT JOIN OrgConfig oc ON oc.id = o.id
-      WHERE b.CreatedDate >= DATEADD(day, -2, GETDATE())
-        AND o.Status = 1
-        AND o.FinanceAccountId NOT IN (508, 820, 906, 507, 1003, 552, 553, '', 534)
-    )
-    SELECT metric, Remaining_Balance, finance_id
-    FROM Latest
-    WHERE rn = 1
-    ORDER BY metric
-  `;
+  // Query A: Grafana's calculated hierarchy total per main organization.
+  // This replaces the raw hourly snapshot so clients such as AlRajhi match
+  // dashboard th4qhrb, including balances held by their sub-organizations.
+  const balanceSql = dashboardSummarySql;
 
   // Query B: Adaptive long-term average daily consumption (up to 32 days).
   // Finds the OLDEST available snapshot in the last 32 days and divides the balance
@@ -222,23 +253,104 @@ async function fetchGrafanaBalances(): Promise<ClientBalanceData[]> {
     WHERE n.rn = 1 AND o.rn = 1
   `;
 
-  // Query E: Direct Organisation.Balance for orgs that use "Use Organization Balance"
-  // but have NO rows in BalanceHistory-Hour (e.g. AlRajhi-1, AlRajhi-2, AlRajhi-3).
-  // These sub-orgs store their balance directly on the Organisation record, not in
-  // the hourly history table. Mirrors the "Organization Balance" panel in RiCH Balance dashboard.
-  const orgDirectBalanceSql = `
-    SELECT DISTINCT o.Name AS metric, o.Balance AS Remaining_Balance, o.FinanceAccountId AS finance_id
-    FROM [RiCH-Web].[dbo].[user] u
-    JOIN [RiCH-Web].[dbo].[Organisation] o ON o.Id = u.OrganisationId
-    WHERE o.Status = 1 AND u.Status = 1
-      AND o.Id IN (
-        SELECT DISTINCT OrganizationId
-        FROM [RiCH-Web].[dbo].[OrganizationConfiguration]
-        WHERE [Key] = 'Use Organization Balance' AND LOWER([Value]) = 'true'
-        UNION SELECT '47a48d76-a97b-4bd2-83b4-2f6f08564261'
-        UNION SELECT '233d22b2-f80f-44aa-b95d-a6524f4f03ef'
-        UNION SELECT '52cf3b17-a7fc-4e1c-b62a-5ac5cd2516c1'
-      )
+  // Hierarchy-safe daily rates for operational monitoring and alerts. A main
+  // organization is only given a rate when every organization contributing to
+  // its calculated summary balance has a daily snapshot for that date.
+  const hierarchyConsumptionSql = `
+    DECLARE @data TABLE (
+      OrganizationId NVARCHAR(100),
+      OrganisationName NVARCHAR(200),
+      FinanceAccountId INT,
+      ParentOrganisationId NVARCHAR(100),
+      OrgLevel NVARCHAR(10),
+      RollsUpToMainOrganizationId NVARCHAR(100),
+      UsesOrgBalance INT,
+      CalculatedBalance DECIMAL(18,3)
+    )
+    INSERT INTO @data
+    EXEC [RiCH-Web].[dbo].[usp_GetClientBalancesDashboard]
+      @RootOrganizationId = '${grafanaRootOrganizationId}',
+      @Mode = 'DETAIL'
+
+    ;WITH MainOrganizations AS (
+      SELECT OrganizationId AS MainOrganizationId, OrganisationName AS metric
+      FROM @data
+      WHERE OrgLevel = 'main'
+    ),
+    ExpectedHierarchy AS (
+      SELECT RollsUpToMainOrganizationId AS MainOrganizationId, COUNT(*) AS expected_organization_count
+      FROM @data
+      GROUP BY RollsUpToMainOrganizationId
+    ),
+    AggregatedDailyBalances AS (
+      SELECT
+        d.RollsUpToMainOrganizationId AS MainOrganizationId,
+        CAST(h.CreatedDate AS DATE) AS date,
+        CAST(SUM(CASE
+          WHEN d.UsesOrgBalance = 1 THEN COALESCE(h.TotalOrganizationBalance, 0)
+          ELSE COALESCE(h.TotalUserBalance, 0)
+        END) AS DECIMAL(18,3)) AS balance,
+        COUNT(DISTINCT d.OrganizationId) AS organization_count
+      FROM [RiCH-Web-2].[dbo].[BalanceHistory-Daily] h
+      JOIN @data d ON d.OrganizationId = h.Id
+      WHERE h.CreatedDate >= DATEADD(day, -33, CAST(GETDATE() AS DATE))
+        AND h.CreatedDate <= CAST(GETDATE() AS DATE)
+      GROUP BY d.RollsUpToMainOrganizationId, CAST(h.CreatedDate AS DATE)
+    ),
+    CompleteDailyBalances AS (
+      SELECT daily.MainOrganizationId, daily.date, daily.balance
+      FROM AggregatedDailyBalances daily
+      JOIN ExpectedHierarchy expected ON expected.MainOrganizationId = daily.MainOrganizationId
+      WHERE daily.organization_count = expected.expected_organization_count
+    ),
+    DailyDeltas AS (
+      SELECT
+        MainOrganizationId,
+        date,
+        balance,
+        LAG(balance) OVER (PARTITION BY MainOrganizationId ORDER BY date ASC) AS previous_balance,
+        LAG(date) OVER (PARTITION BY MainOrganizationId ORDER BY date ASC) AS previous_date
+      FROM CompleteDailyBalances
+    ),
+    Consumption AS (
+      SELECT
+        MainOrganizationId,
+        date,
+        CASE
+          WHEN DATEDIFF(day, previous_date, date) = 1 AND previous_balance - balance > 0
+          THEN previous_balance - balance
+          ELSE 0
+        END AS daily_consumption,
+        CASE WHEN DATEDIFF(day, previous_date, date) = 1 THEN 1 ELSE 0 END AS has_adjacent_previous
+      FROM DailyDeltas
+    )
+    SELECT
+      main.metric,
+      CAST(SUM(CASE
+        WHEN consumption.has_adjacent_previous = 1
+          AND consumption.date >= DATEADD(day, -32, CAST(GETDATE() AS DATE))
+        THEN consumption.daily_consumption ELSE 0 END) AS FLOAT)
+        / NULLIF(SUM(CASE
+          WHEN consumption.has_adjacent_previous = 1
+            AND consumption.date >= DATEADD(day, -32, CAST(GETDATE() AS DATE))
+          THEN 1 ELSE 0 END), 0) AS Avg_Daily_Consumption,
+      CAST(SUM(CASE
+        WHEN consumption.has_adjacent_previous = 1
+          AND consumption.date >= DATEADD(day, -9, CAST(GETDATE() AS DATE))
+        THEN consumption.daily_consumption ELSE 0 END) AS FLOAT)
+        / NULLIF(SUM(CASE
+          WHEN consumption.has_adjacent_previous = 1
+            AND consumption.date >= DATEADD(day, -9, CAST(GETDATE() AS DATE))
+          THEN 1 ELSE 0 END), 0) AS Avg_Daily_Consumption_Recent,
+      MAX(CASE WHEN consumption.has_adjacent_previous = 1
+        AND consumption.date = DATEADD(day, -1, CAST(GETDATE() AS DATE))
+        THEN consumption.daily_consumption END) AS yesterday_consumption,
+      MAX(CASE WHEN consumption.has_adjacent_previous = 1
+        AND consumption.date = DATEADD(day, -2, CAST(GETDATE() AS DATE))
+        THEN consumption.daily_consumption END) AS day_before_consumption
+    FROM MainOrganizations main
+    LEFT JOIN Consumption ON Consumption.MainOrganizationId = main.MainOrganizationId
+    GROUP BY main.metric
   `;
 
   const payload = {
@@ -254,31 +366,7 @@ async function fetchGrafanaBalances(): Promise<ClientBalanceData[]> {
       {
         refId: "B",
         datasource: { type: "mssql", uid: "af0fc2y09shdsd" },
-        rawSql: consumptionSql,
-        format: "table",
-        rawQuery: true,
-        dataset: "reportag4-25",
-      },
-      {
-        refId: "C",
-        datasource: { type: "mssql", uid: "af0fc2y09shdsd" },
-        rawSql: recentConsumptionSql,
-        format: "table",
-        rawQuery: true,
-        dataset: "reportag4-25",
-      },
-      {
-        refId: "D",
-        datasource: { type: "mssql", uid: "af0fc2y09shdsd" },
-        rawSql: dayOverDaySql,
-        format: "table",
-        rawQuery: true,
-        dataset: "reportag4-25",
-      },
-      {
-        refId: "E",
-        datasource: { type: "mssql", uid: "af0fc2y09shdsd" },
-        rawSql: orgDirectBalanceSql,
+        rawSql: hierarchyConsumptionSql,
         format: "table",
         rawQuery: true,
         dataset: "reportag4-25",
@@ -315,9 +403,8 @@ async function fetchGrafanaBalances(): Promise<ClientBalanceData[]> {
     const data = (await resp.json()) as GrafanaQueryResponse;
     const balanceFrames = data?.results?.A?.frames ?? [];
     const consumptionFrames = data?.results?.B?.frames ?? [];
-    const recentConsumptionFrames = data?.results?.C?.frames ?? [];
-    const dayOverDayFrames = data?.results?.D?.frames ?? [];
-    const directBalanceFrames = data?.results?.E?.frames ?? [];
+    const recentConsumptionFrames = consumptionFrames;
+    const dayOverDayFrames = consumptionFrames;
 
     // Log any Grafana-level errors per query to diagnose missing data
     for (const [refId, result] of Object.entries(data?.results ?? {})) {
@@ -328,14 +415,14 @@ async function fetchGrafanaBalances(): Promise<ClientBalanceData[]> {
       }
     }
 
-    if (balanceFrames.length === 0 && directBalanceFrames.length === 0) {
+    if (balanceFrames.length === 0) {
       logger.warn("Grafana returned no balance frames");
       recordGrafanaFetch(false, "No balance frames returned");
       return [];
     }
 
     recordGrafanaFetch(true);
-    return parseFramesToBalances(balanceFrames, consumptionFrames, recentConsumptionFrames, dayOverDayFrames, directBalanceFrames);
+    return parseFramesToBalances(balanceFrames, consumptionFrames, recentConsumptionFrames, dayOverDayFrames);
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     logger.error({ err }, "Grafana fetch error");
@@ -385,25 +472,12 @@ function parseFramesToBalances(
   balanceFrames: GrafanaFrame[],
   consumptionFrames: GrafanaFrame[],
   recentConsumptionFrames: GrafanaFrame[],
-  dayOverDayFrames: GrafanaFrame[],
-  directBalanceFrames: GrafanaFrame[] = []
+  dayOverDayFrames: GrafanaFrame[]
 ): ClientBalanceData[] {
   // Build balance map: metric → latest remaining balance
   const balanceMap = extractFrameMap(balanceFrames, "metric", "Remaining_Balance");
 
-  // Build finance ID maps from both query A and query E frames
-  const financeIdMapA = extractStringFrameMap(balanceFrames, "metric", "finance_id");
-  const financeIdMapE = extractStringFrameMap(directBalanceFrames, "metric", "finance_id");
-
-  // Merge direct-balance entries (Organisation.Balance) for orgs that have no
-  // BalanceHistory-Hour rows (e.g. AlRajhi-1, AlRajhi-2, AlRajhi-3).
-  // Only add if not already present — BalanceHistory-Hour takes precedence.
-  const directBalanceMap = extractFrameMap(directBalanceFrames, "metric", "Remaining_Balance");
-  for (const [metric, balance] of directBalanceMap.entries()) {
-    if (!balanceMap.has(metric)) {
-      balanceMap.set(metric, balance);
-    }
-  }
+  const financeIdMap = extractStringFrameMap(balanceFrames, "metric", "finance_id");
 
   // Build consumption map: metric → avg daily consumption (same period last month)
   const consumptionMap = extractFrameMap(consumptionFrames, "metric", "Avg_Daily_Consumption");
@@ -427,7 +501,7 @@ function parseFramesToBalances(
     const rawRecent = recentConsumptionMap.get(metric) ?? 0;
     const recentDailyConsumption = rawRecent > 0 ? rawRecent : (dailyConsumption === 0 && yesterdayConsumption > 0 ? yesterdayConsumption : 0);
 
-    const financeId = financeIdMapA.get(metric) ?? financeIdMapE.get(metric) ?? null;
+    const financeId = financeIdMap.get(metric) ?? null;
     result.push({ metric, remainingBalance, dailyConsumption, recentDailyConsumption, yesterdayConsumption, dayBeforeConsumption, financeId });
   }
 
@@ -441,6 +515,311 @@ function parseFramesToBalances(
     return daysA - daysB;
   });
 }
+
+function frameRows(frames: GrafanaFrame[]): GrafanaRow[] {
+  const rows: GrafanaRow[] = [];
+  for (const frame of frames) {
+    const fields = frame.schema?.fields ?? [];
+    const values = frame.data?.values ?? [];
+    const rowCount = Math.max(0, ...values.map((value) => Array.isArray(value) ? value.length : 0));
+    for (let rowIndex = 0; rowIndex < rowCount; rowIndex++) {
+      const row: GrafanaRow = {};
+      for (let fieldIndex = 0; fieldIndex < fields.length; fieldIndex++) {
+        row[fields[fieldIndex].name] = values[fieldIndex]?.[rowIndex] ?? null;
+      }
+      rows.push(row);
+    }
+  }
+  return rows;
+}
+
+function stringValue(value: unknown): string | null {
+  if (value === null || value === undefined) return null;
+  const text = String(value);
+  return text === "" ? null : text;
+}
+
+function numberValue(value: unknown): number {
+  const number = Number(value);
+  return Number.isFinite(number) ? number : 0;
+}
+
+function organisationFromRow(row: GrafanaRow): DashboardOrganization | null {
+  const metric = stringValue(row.metric);
+  if (!metric) return null;
+  const financeId = stringValue(row.finance_id);
+  return {
+    metric,
+    financeId,
+    usesOrgBalance: numberValue(row.uses_org_balance) === 1,
+    remainingBalance: numberValue(row.Remaining_Balance),
+  };
+}
+
+async function queryGrafana(queries: Array<{ refId: string; rawSql: string }>): Promise<GrafanaQueryResponse> {
+  const rows = await db.select().from(settingsTable).limit(1);
+  const settings = rows[0];
+  const grafanaUrl = settings?.grafanaUrl || "https://grafana.t2.sa";
+  const apiKey = settings?.grafanaApiKey;
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+    Accept: "application/json",
+  };
+  if (apiKey && apiKey !== "***") headers.Authorization = `Bearer ${apiKey}`;
+
+  const execute = () => undiciFetch(`${grafanaUrl}/api/ds/query`, {
+    method: "POST",
+    headers,
+    body: JSON.stringify({
+      queries: queries.map((query) => ({
+        refId: query.refId,
+        datasource: grafanaDatasource,
+        rawSql: query.rawSql,
+        format: "table",
+        rawQuery: true,
+        dataset: "reportag4-25",
+      })),
+      from: "now-95d",
+      to: "now",
+    }),
+    signal: AbortSignal.timeout(45_000),
+    dispatcher: grafanaAgent,
+  });
+
+  let response: Response;
+  try {
+    response = await execute();
+  } catch (firstError) {
+    logger.warn({ err: firstError }, "Grafana dashboard query failed on first attempt, retrying");
+    await new Promise((resolve) => setTimeout(resolve, 3_000));
+    response = await execute();
+  }
+  if (!response.ok) throw new Error(`Grafana returned HTTP ${response.status}`);
+
+  const data = (await response.json()) as GrafanaQueryResponse;
+  for (const [refId, result] of Object.entries(data.results ?? {})) {
+    if (result.error) throw new Error(`Grafana ${refId} query failed: ${result.error}`);
+  }
+  return data;
+}
+
+function isSafeOrganizationMetric(metric: string): boolean {
+  return metric.length > 0
+    && metric.length <= 200
+    && /^[\p{L}\p{N} ._()&-]+$/u.test(metric);
+}
+
+function studyHistorySql(metric: string): string {
+  const escapedMetric = metric.replace(/'/g, "''");
+  return `
+    -- Uses the same balance-mode rule as the summary, across every organization
+    -- that rolls up to the selected main organization.
+    DECLARE @data TABLE (
+      OrganizationId NVARCHAR(100),
+      OrganisationName NVARCHAR(200),
+      FinanceAccountId INT,
+      ParentOrganisationId NVARCHAR(100),
+      OrgLevel NVARCHAR(10),
+      RollsUpToMainOrganizationId NVARCHAR(100),
+      UsesOrgBalance INT,
+      CalculatedBalance DECIMAL(18,3)
+    )
+    INSERT INTO @data
+    EXEC [RiCH-Web].[dbo].[usp_GetClientBalancesDashboard]
+      @RootOrganizationId = '${grafanaRootOrganizationId}',
+      @Mode = 'DETAIL'
+
+    DECLARE @MainOrgId NVARCHAR(100)
+    SELECT TOP 1 @MainOrgId = RollsUpToMainOrganizationId
+    FROM @data
+    WHERE OrganisationName = '${escapedMetric}'
+      AND OrgLevel = 'main'
+
+    DECLARE @ExpectedOrganizationCount INT = (
+      SELECT COUNT(*)
+      FROM @data
+      WHERE RollsUpToMainOrganizationId = @MainOrgId
+    )
+
+    ;WITH AggregatedDailyBalances AS (
+      SELECT
+        CAST(h.CreatedDate AS DATE) AS date,
+        CAST(SUM(CASE
+          WHEN d.UsesOrgBalance = 1 THEN COALESCE(h.TotalOrganizationBalance, 0)
+          ELSE COALESCE(h.TotalUserBalance, 0)
+        END) AS DECIMAL(18,3)) AS balance,
+        COUNT(DISTINCT d.OrganizationId) AS organization_count
+      FROM [RiCH-Web-2].[dbo].[BalanceHistory-Daily] h
+      JOIN @data d ON d.OrganizationId = h.Id
+      WHERE d.RollsUpToMainOrganizationId = @MainOrgId
+        AND h.CreatedDate >= DATEADD(day, -90, CAST(GETDATE() AS DATE))
+        AND h.CreatedDate <= CAST(GETDATE() AS DATE)
+      GROUP BY CAST(h.CreatedDate AS DATE)
+    ),
+    CompleteDailyBalances AS (
+      SELECT date, balance, organization_count
+      FROM AggregatedDailyBalances
+      WHERE organization_count = @ExpectedOrganizationCount
+    ),
+    DailyBalances AS (
+      SELECT
+        date,
+        balance,
+        organization_count,
+        LAG(balance) OVER (ORDER BY date ASC) AS previous_balance,
+        LAG(date) OVER (ORDER BY date ASC) AS previous_date
+      FROM CompleteDailyBalances
+    )
+    SELECT
+      date,
+      balance,
+      CASE WHEN previous_balance - balance > 0 THEN previous_balance - balance ELSE 0 END AS consumption,
+      organization_count,
+      @ExpectedOrganizationCount AS expected_organization_count,
+      1 AS is_complete
+    FROM DailyBalances
+    WHERE previous_balance IS NOT NULL
+      AND DATEDIFF(day, previous_date, date) = 1
+    UNION ALL
+    SELECT
+      date,
+      balance,
+      0 AS consumption,
+      organization_count,
+      @ExpectedOrganizationCount AS expected_organization_count,
+      0 AS is_complete
+    FROM AggregatedDailyBalances
+    WHERE organization_count <> @ExpectedOrganizationCount
+    ORDER BY date
+  `;
+}
+
+function toIsoDate(value: unknown): string | null {
+  const date = new Date(typeof value === "number" ? value : String(value));
+  return Number.isNaN(date.getTime()) ? null : date.toISOString();
+}
+
+function chooseStudyRate(history: OrganizationStudyPoint[]): {
+  averageDailyConsumption: number;
+  rateWindowDays: number;
+  rateBasis: string;
+} {
+  const candidates = [
+    { window: 90, minimumCoverage: 60, label: "90-day average" },
+    { window: 30, minimumCoverage: 20, label: "30-day fallback average" },
+    { window: 7, minimumCoverage: 5, label: "7-day fallback average" },
+  ];
+
+  for (const candidate of candidates) {
+    const points = history.slice(-candidate.window);
+    if (points.length < candidate.minimumCoverage) continue;
+    const averageDailyConsumption = points.reduce((total, point) => total + point.consumption, 0) / points.length;
+    return { averageDailyConsumption, rateWindowDays: points.length, rateBasis: candidate.label };
+  }
+  return { averageDailyConsumption: 0, rateWindowDays: 0, rateBasis: "Insufficient daily history" };
+}
+
+router.get("/grafana/organizations", async (req, res): Promise<void> => {
+  try {
+    const data = await queryGrafana([{ refId: "S", rawSql: dashboardSummarySql }]);
+    const organizations = frameRows(data.results.S?.frames ?? [])
+      .map(organisationFromRow)
+      .filter((organization): organization is DashboardOrganization => organization !== null);
+    res.json(ListGrafanaOrganizationsResponse.parse(organizations));
+  } catch (error) {
+    req.log.error({ err: error }, "Failed to load Grafana organization directory");
+    res.status(502).json({ error: "Unable to load organization data from Grafana." });
+  }
+});
+
+router.get("/grafana/organization-study", async (req, res): Promise<void> => {
+  const params = GetGrafanaOrganizationStudyQueryParams.safeParse(req.query);
+  if (!params.success || !isSafeOrganizationMetric(params.data.metric)) {
+    res.status(400).json({ error: "A valid organization name is required." });
+    return;
+  }
+
+  try {
+    const data = await queryGrafana([
+      { refId: "S", rawSql: dashboardSummarySql },
+      { refId: "H", rawSql: studyHistorySql(params.data.metric) },
+    ]);
+    const organization = frameRows(data.results.S?.frames ?? [])
+      .map(organisationFromRow)
+      .find((entry) => entry?.metric === params.data.metric);
+    if (!organization) {
+      res.status(404).json({ error: "Organization was not found in Grafana." });
+      return;
+    }
+
+    const rawHistory = frameRows(data.results.H?.frames ?? [])
+      .map((row): { point: OrganizationStudyPoint; hasCompleteHierarchy: boolean } | null => {
+        const date = toIsoDate(row.date);
+        if (!date) return null;
+        return {
+          point: {
+            date,
+            balance: numberValue(row.balance),
+            consumption: numberValue(row.consumption),
+          },
+          hasCompleteHierarchy: numberValue(row.is_complete) === 1,
+        };
+      })
+      .filter((entry): entry is { point: OrganizationStudyPoint; hasCompleteHierarchy: boolean } => entry !== null)
+      .sort((a, b) => a.point.date.localeCompare(b.point.date));
+    const incompleteHierarchyDays = rawHistory.filter((entry) => !entry.hasCompleteHierarchy).length;
+    const history = rawHistory
+      .filter((entry) => entry.hasCompleteHierarchy)
+      .map((entry) => entry.point);
+
+    const rate = chooseStudyRate(history);
+    const settingsRows = await db.select().from(settingsTable).limit(1);
+    const settings = settingsRows[0];
+    const rawDays = rate.averageDailyConsumption > 0
+      ? organization.remainingBalance / rate.averageDailyConsumption
+      : null;
+    const daysRemaining = rawDays === null ? -1 : Math.max(0, Math.round(rawDays * 10) / 10);
+    const severity = rawDays === null
+      ? "ok"
+      : computeSeverity(
+          daysRemaining,
+          settings?.thresholdStaff ?? 20,
+          settings?.thresholdManager ?? 15,
+          settings?.thresholdMd ?? 5,
+          settings?.thresholdImmediate ?? 1,
+        );
+    const dataQuality: string[] = [];
+    if (organization.financeId === null || Number(organization.financeId) <= 0) {
+      dataQuality.push("Finance ID is missing or invalid.");
+    }
+    if (organization.remainingBalance < 0) dataQuality.push("Remaining balance is negative.");
+    else if (organization.remainingBalance === 0) dataQuality.push("Remaining balance is zero.");
+    if (incompleteHierarchyDays > 0) {
+      dataQuality.push(`${incompleteHierarchyDays} partial hierarchy day(s) were excluded from the consumption forecast.`);
+    }
+    if (history.length < 60) dataQuality.push(`Only ${history.length} days of usable history are available.`);
+    if (rate.averageDailyConsumption <= 0) dataQuality.push("No positive consumption rate can be calculated from the available history.");
+
+    res.json(GetGrafanaOrganizationStudyResponse.parse({
+      metric: organization.metric,
+      financeId: organization.financeId,
+      usesOrgBalance: organization.usesOrgBalance,
+      remainingBalance: organization.remainingBalance,
+      dailyHistory: history,
+      averageDailyConsumption: rate.averageDailyConsumption,
+      rateWindowDays: rate.rateWindowDays,
+      coverageDays: history.length,
+      daysRemaining,
+      severity,
+      rateBasis: rate.rateBasis,
+      dataQuality,
+      lastUpdated: new Date().toISOString(),
+    }));
+  } catch (error) {
+    req.log.error({ err: error, metric: params.data.metric }, "Failed to load Grafana organization study");
+    res.status(502).json({ error: "Unable to load organization study from Grafana." });
+  }
+});
 
 function computeSeverity(
   daysRemaining: number,
