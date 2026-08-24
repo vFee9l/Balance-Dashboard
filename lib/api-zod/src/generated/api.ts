@@ -345,7 +345,11 @@ export const GetGrafanaOrganizationStudyResponse = zod.object({
   "dailyHistory": zod.array(zod.object({
   "date": zod.string(),
   "balance": zod.number(),
-  "consumption": zod.number()
+  "consumption": zod.number().describe('Positive balance drop for a complete, consecutive daily interval; zero when no valid interval exists'),
+  "balanceChange": zod.number().nullable().describe('Balance movement since the prior complete, consecutive daily point; positive means an increase'),
+  "isComplete": zod.boolean().describe('Whether every balance-contributing organization reported a snapshot on this date'),
+  "organizationCount": zod.number().describe('Number of balance-contributing organizations with a snapshot on this date'),
+  "expectedOrganizationCount": zod.number().describe('Number of balance-contributing organizations expected for complete hierarchy coverage')
 })),
   "averageDailyConsumption": zod.number(),
   "rateWindowDays": zod.number(),
@@ -371,6 +375,8 @@ export const GetGrafanaBalancesResponseItem = zod.object({
   "daysRemainingRecent": zod.number().describe('Estimated days remaining based on the last 7-day consumption rate (-1 if no data)'),
   "yesterdayConsumption": zod.number().describe('Actual SMS consumption yesterday'),
   "dailyChangePercent": zod.number().nullish().describe('Percentage change in consumption: yesterday vs day before (null if insufficient data)'),
+  "historyCoverageDays": zod.number().describe('Count of valid daily balance intervals in the current contiguous history run'),
+  "dailyBalanceChange": zod.number().nullable().describe('Yesterday\'s balance minus the prior day\'s balance (positive means the balance increased)'),
   "severity": zod.string(),
   "lastUpdated": zod.string().nullish()
 })

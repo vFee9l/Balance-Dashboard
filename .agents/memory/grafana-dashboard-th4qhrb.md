@@ -26,3 +26,9 @@ The linked Grafana dashboard returns organization detail rows with hierarchy, Fi
 **Why:** A gap between retained snapshots turns a multi-day balance drop into an overstated single-day rate.
 
 **How to apply:** Filter incomplete hierarchy dates before calculating the lag, then exclude any remaining lag pair whose dates are not adjacent from all rates, daily deltas, and forecast logic. If retained history is fragmented, calculate a forecast only from the most recent contiguous run; never combine separate runs to meet a coverage threshold.
+
+**Historical contributor selection:** Use the same hierarchy records that make up the current calculated total. A main parent with a zero calculated balance is not a required historical contributor when its child records supply the live total.
+
+**Why:** Counting that zero-balance parent as an expected snapshot makes valid child history look incomplete, which hid AlRajhi's daily balance data and suppressed usable rates.
+
+**How to apply:** Deduplicate each organization's daily snapshot before aggregating by date, retain all aggregated rows for the study display with coverage metadata, and use only complete consecutive intervals from the latest run for rates and forecasts.

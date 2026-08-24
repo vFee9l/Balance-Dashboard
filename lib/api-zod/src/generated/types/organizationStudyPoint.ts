@@ -9,5 +9,17 @@
 export interface OrganizationStudyPoint {
   date: string;
   balance: number;
+  /** Positive balance drop for a complete, consecutive daily interval; zero when no valid interval exists */
   consumption: number;
+  /**
+     * Balance movement since the prior complete, consecutive daily point; positive means an increase
+     * @nullable
+     */
+  balanceChange: number | null;
+  /** Whether every balance-contributing organization reported a snapshot on this date */
+  isComplete: boolean;
+  /** Number of balance-contributing organizations with a snapshot on this date */
+  organizationCount: number;
+  /** Number of balance-contributing organizations expected for complete hierarchy coverage */
+  expectedOrganizationCount: number;
 }

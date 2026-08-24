@@ -64,6 +64,159 @@ const dashboardSummarySql = `
   ORDER BY MainOrganisationName
 `;
 
+function buildHierarchyConsumptionSql(): string {
+  return `
+    DECLARE @data TABLE (
+      OrganizationId NVARCHAR(100),
+      OrganisationName NVARCHAR(200),
+      FinanceAccountId INT,
+      ParentOrganisationId NVARCHAR(100),
+      OrgLevel NVARCHAR(10),
+      RollsUpToMainOrganizationId NVARCHAR(100),
+      UsesOrgBalance INT,
+      CalculatedBalance DECIMAL(18,3)
+    )
+    INSERT INTO @data
+    EXEC [RiCH-Web].[dbo].[usp_GetClientBalancesDashboard]
+      @RootOrganizationId = '${grafanaRootOrganizationId}',
+      @Mode = 'DETAIL'
+
+    ;WITH MainOrganizations AS (
+      SELECT
+        COALESCE(RollsUpToMainOrganizationId, OrganizationId) AS MainOrganizationId,
+        OrganisationName AS metric
+      FROM @data
+      WHERE OrgLevel = 'main'
+    ),
+    HistoricalContributors AS (
+      SELECT
+        OrganizationId,
+        COALESCE(RollsUpToMainOrganizationId, OrganizationId) AS MainOrganizationId,
+        UsesOrgBalance
+      FROM @data
+      WHERE OrgLevel <> 'main' OR COALESCE(CalculatedBalance, 0) <> 0
+    ),
+    ExpectedHierarchy AS (
+      SELECT MainOrganizationId, COUNT(DISTINCT OrganizationId) AS expected_organization_count
+      FROM HistoricalContributors
+      GROUP BY MainOrganizationId
+    ),
+    DailySnapshots AS (
+      SELECT
+        contributor.MainOrganizationId,
+        contributor.OrganizationId,
+        CAST(h.CreatedDate AS DATE) AS date,
+        MAX(CASE
+          WHEN contributor.UsesOrgBalance = 1 THEN COALESCE(h.TotalOrganizationBalance, 0)
+          ELSE COALESCE(h.TotalUserBalance, 0)
+        END) AS balance
+      FROM [RiCH-Web-2].[dbo].[BalanceHistory-Daily] h
+      JOIN HistoricalContributors contributor ON contributor.OrganizationId = h.Id
+      WHERE h.CreatedDate >= DATEADD(day, -95, CAST(GETDATE() AS DATE))
+        AND h.CreatedDate <= CAST(GETDATE() AS DATE)
+      GROUP BY contributor.MainOrganizationId, contributor.OrganizationId, CAST(h.CreatedDate AS DATE)
+    ),
+    AggregatedDailyBalances AS (
+      SELECT
+        MainOrganizationId,
+        date,
+        CAST(SUM(balance) AS DECIMAL(18,3)) AS balance,
+        COUNT(DISTINCT OrganizationId) AS organization_count
+      FROM DailySnapshots
+      GROUP BY MainOrganizationId, date
+    ),
+    DailyCoverage AS (
+      SELECT
+        daily.*,
+        expected.expected_organization_count,
+        CASE WHEN daily.organization_count = expected.expected_organization_count THEN 1 ELSE 0 END AS is_complete
+      FROM AggregatedDailyBalances daily
+      JOIN ExpectedHierarchy expected ON expected.MainOrganizationId = daily.MainOrganizationId
+    ),
+    DailyWithPrevious AS (
+      SELECT
+        MainOrganizationId,
+        date,
+        balance,
+        is_complete,
+        LAG(balance) OVER (PARTITION BY MainOrganizationId ORDER BY date ASC) AS previous_balance,
+        LAG(date) OVER (PARTITION BY MainOrganizationId ORDER BY date ASC) AS previous_date,
+        LAG(is_complete) OVER (PARTITION BY MainOrganizationId ORDER BY date ASC) AS previous_is_complete
+      FROM DailyCoverage
+    ),
+    DailyRuns AS (
+      SELECT
+        MainOrganizationId,
+        date,
+        balance,
+        is_complete,
+        CASE WHEN is_complete = 1
+          AND previous_is_complete = 1
+          AND DATEDIFF(day, previous_date, date) = 1
+          THEN 1 ELSE 0 END AS is_valid_interval,
+        CASE WHEN is_complete = 1
+          AND previous_is_complete = 1
+          AND DATEDIFF(day, previous_date, date) = 1
+          AND previous_balance - balance > 0
+          THEN previous_balance - balance ELSE 0 END AS daily_consumption,
+        SUM(CASE WHEN is_complete = 1
+          AND (previous_is_complete <> 1 OR DATEDIFF(day, previous_date, date) <> 1)
+          THEN 1 ELSE 0 END
+        ) OVER (PARTITION BY MainOrganizationId ORDER BY date ASC ROWS UNBOUNDED PRECEDING) AS run_id
+      FROM DailyWithPrevious
+    ),
+    LatestRuns AS (
+      SELECT MainOrganizationId, MAX(run_id) AS run_id
+      FROM DailyRuns
+      WHERE is_complete = 1
+      GROUP BY MainOrganizationId
+    ),
+    LatestRunHistory AS (
+      SELECT daily.*
+      FROM DailyRuns daily
+      JOIN LatestRuns latest
+        ON latest.MainOrganizationId = daily.MainOrganizationId
+       AND latest.run_id = daily.run_id
+      WHERE daily.is_complete = 1
+    )
+    SELECT
+      main.metric,
+      CAST(SUM(CASE WHEN history.is_valid_interval = 1
+        AND history.date >= DATEADD(day, -32, CAST(GETDATE() AS DATE))
+        THEN history.daily_consumption ELSE 0 END) AS FLOAT)
+        / NULLIF(SUM(CASE WHEN history.is_valid_interval = 1
+          AND history.date >= DATEADD(day, -32, CAST(GETDATE() AS DATE))
+          THEN 1 ELSE 0 END), 0) AS Avg_Daily_Consumption,
+      SUM(CASE WHEN history.is_valid_interval = 1
+        AND history.date >= DATEADD(day, -32, CAST(GETDATE() AS DATE))
+        THEN 1 ELSE 0 END) AS long_rate_interval_count,
+      CAST(SUM(CASE WHEN history.is_valid_interval = 1
+        AND history.date >= DATEADD(day, -9, CAST(GETDATE() AS DATE))
+        THEN history.daily_consumption ELSE 0 END) AS FLOAT)
+        / NULLIF(SUM(CASE WHEN history.is_valid_interval = 1
+          AND history.date >= DATEADD(day, -9, CAST(GETDATE() AS DATE))
+          THEN 1 ELSE 0 END), 0) AS Avg_Daily_Consumption_Recent,
+      SUM(CASE WHEN history.is_valid_interval = 1
+        AND history.date >= DATEADD(day, -9, CAST(GETDATE() AS DATE))
+        THEN 1 ELSE 0 END) AS recent_rate_interval_count,
+      SUM(CASE WHEN history.is_valid_interval = 1 THEN 1 ELSE 0 END) AS history_coverage_days,
+      MAX(CASE WHEN history.is_valid_interval = 1
+        AND history.date = DATEADD(day, -1, CAST(GETDATE() AS DATE))
+        THEN history.daily_consumption END) AS yesterday_consumption,
+      MAX(CASE WHEN history.is_valid_interval = 1
+        AND history.date = DATEADD(day, -2, CAST(GETDATE() AS DATE))
+        THEN history.daily_consumption END) AS day_before_consumption,
+      MAX(CASE WHEN history.is_valid_interval = 1
+        AND history.date = DATEADD(day, -1, CAST(GETDATE() AS DATE))
+        THEN history.balance END) AS yesterday_balance,
+      MAX(CASE WHEN history.date = DATEADD(day, -2, CAST(GETDATE() AS DATE))
+        THEN history.balance END) AS day_before_balance
+    FROM MainOrganizations main
+    LEFT JOIN LatestRunHistory history ON history.MainOrganizationId = main.MainOrganizationId
+    GROUP BY main.metric
+  `;
+}
+
 async function fetchGrafanaBalances(): Promise<ClientBalanceData[]> {
   const rows = await db.select().from(settingsTable).limit(1);
   const settings = rows[0];
@@ -229,7 +382,8 @@ async function fetchGrafanaBalances(): Promise<ClientBalanceData[]> {
   // Hierarchy-safe daily rates for operational monitoring and alerts. A main
   // organization is only given a rate when every organization contributing to
   // its calculated summary balance has a daily snapshot for that date.
-  const hierarchyConsumptionSql = `
+  const hierarchyConsumptionSql = buildHierarchyConsumptionSql();
+  /*
     DECLARE @data TABLE (
       OrganizationId NVARCHAR(100),
       OrganisationName NVARCHAR(200),
@@ -324,7 +478,7 @@ async function fetchGrafanaBalances(): Promise<ClientBalanceData[]> {
     FROM MainOrganizations main
     LEFT JOIN Consumption ON Consumption.MainOrganizationId = main.MainOrganizationId
     GROUP BY main.metric
-  `;
+  */
 
   const payload = {
     queries: [
@@ -484,66 +638,87 @@ function studyHistorySql(metric: string): string {
       @Mode = 'DETAIL'
 
     DECLARE @MainOrgId NVARCHAR(100)
-    SELECT TOP 1 @MainOrgId = RollsUpToMainOrganizationId
+    SELECT TOP 1 @MainOrgId = COALESCE(RollsUpToMainOrganizationId, OrganizationId)
     FROM @data
     WHERE OrganisationName = '${escapedMetric}'
       AND OrgLevel = 'main'
 
-    DECLARE @ExpectedOrganizationCount INT = (
-      SELECT COUNT(*)
-      FROM @data
-      WHERE RollsUpToMainOrganizationId = @MainOrgId
-    )
-
-    ;WITH AggregatedDailyBalances AS (
+    ;WITH HistoricalContributors AS (
       SELECT
+        OrganizationId,
+        COALESCE(RollsUpToMainOrganizationId, OrganizationId) AS MainOrganizationId,
+        UsesOrgBalance
+      FROM @data
+      WHERE OrgLevel <> 'main' OR COALESCE(CalculatedBalance, 0) <> 0
+    ),
+    ExpectedHierarchy AS (
+      SELECT COUNT(DISTINCT OrganizationId) AS expected_organization_count
+      FROM HistoricalContributors
+      WHERE MainOrganizationId = @MainOrgId
+    ),
+    DailySnapshots AS (
+      SELECT
+        contributor.OrganizationId,
         CAST(h.CreatedDate AS DATE) AS date,
-        CAST(SUM(CASE
-          WHEN d.UsesOrgBalance = 1 THEN COALESCE(h.TotalOrganizationBalance, 0)
+        MAX(CASE
+          WHEN contributor.UsesOrgBalance = 1 THEN COALESCE(h.TotalOrganizationBalance, 0)
           ELSE COALESCE(h.TotalUserBalance, 0)
-        END) AS DECIMAL(18,3)) AS balance,
-        COUNT(DISTINCT d.OrganizationId) AS organization_count
+        END) AS balance
       FROM [RiCH-Web-2].[dbo].[BalanceHistory-Daily] h
-      JOIN @data d ON d.OrganizationId = h.Id
-      WHERE d.RollsUpToMainOrganizationId = @MainOrgId
+      JOIN HistoricalContributors contributor ON contributor.OrganizationId = h.Id
+      WHERE contributor.MainOrganizationId = @MainOrgId
         AND h.CreatedDate >= DATEADD(day, -90, CAST(GETDATE() AS DATE))
         AND h.CreatedDate <= CAST(GETDATE() AS DATE)
-      GROUP BY CAST(h.CreatedDate AS DATE)
+      GROUP BY contributor.OrganizationId, CAST(h.CreatedDate AS DATE)
     ),
-    CompleteDailyBalances AS (
-      SELECT date, balance, organization_count
-      FROM AggregatedDailyBalances
-      WHERE organization_count = @ExpectedOrganizationCount
+    AggregatedDailyBalances AS (
+      SELECT
+        date,
+        CAST(SUM(balance) AS DECIMAL(18,3)) AS balance,
+        COUNT(DISTINCT OrganizationId) AS organization_count
+      FROM DailySnapshots
+      GROUP BY date
     ),
-    DailyBalances AS (
+    DailyCoverage AS (
+      SELECT
+        daily.*,
+        expected.expected_organization_count,
+        CASE WHEN daily.organization_count = expected.expected_organization_count THEN 1 ELSE 0 END AS is_complete
+      FROM AggregatedDailyBalances daily
+      CROSS JOIN ExpectedHierarchy expected
+    ),
+    DailyWithPrevious AS (
       SELECT
         date,
         balance,
         organization_count,
+        expected_organization_count,
+        is_complete,
         LAG(balance) OVER (ORDER BY date ASC) AS previous_balance,
-        LAG(date) OVER (ORDER BY date ASC) AS previous_date
-      FROM CompleteDailyBalances
+        LAG(date) OVER (ORDER BY date ASC) AS previous_date,
+        LAG(is_complete) OVER (ORDER BY date ASC) AS previous_is_complete
+      FROM DailyCoverage
     )
     SELECT
       date,
       balance,
-      CASE WHEN previous_balance - balance > 0 THEN previous_balance - balance ELSE 0 END AS consumption,
+      CASE WHEN is_complete = 1
+        AND previous_is_complete = 1
+        AND DATEDIFF(day, previous_date, date) = 1
+        AND previous_balance - balance > 0
+        THEN previous_balance - balance ELSE 0 END AS consumption,
+      CASE WHEN is_complete = 1
+        AND previous_is_complete = 1
+        AND DATEDIFF(day, previous_date, date) = 1
+        THEN balance - previous_balance ELSE NULL END AS balance_change,
       organization_count,
-      @ExpectedOrganizationCount AS expected_organization_count,
-      1 AS is_complete
-    FROM DailyBalances
-    WHERE previous_balance IS NOT NULL
-      AND DATEDIFF(day, previous_date, date) = 1
-    UNION ALL
-    SELECT
-      date,
-      balance,
-      0 AS consumption,
-      organization_count,
-      @ExpectedOrganizationCount AS expected_organization_count,
-      0 AS is_complete
-    FROM AggregatedDailyBalances
-    WHERE organization_count <> @ExpectedOrganizationCount
+      expected_organization_count,
+      is_complete,
+      CASE WHEN is_complete = 1
+        AND previous_is_complete = 1
+        AND DATEDIFF(day, previous_date, date) = 1
+        THEN 1 ELSE 0 END AS is_valid_interval
+    FROM DailyWithPrevious
     ORDER BY date
   `;
 }
@@ -904,6 +1079,10 @@ router.get("/grafana/balances", async (req, res): Promise<void> => {
         ((b.yesterdayConsumption - b.dayBeforeConsumption) / b.dayBeforeConsumption) * 1000
       ) / 10; // one decimal place
     }
+    const dailyBalanceChange =
+      b.yesterdayBalance !== null && b.dayBeforeBalance !== null
+        ? b.yesterdayBalance - b.dayBeforeBalance
+        : null;
 
     return {
       metric: b.metric,
@@ -916,6 +1095,8 @@ router.get("/grafana/balances", async (req, res): Promise<void> => {
       usingFallbackRate,
       yesterdayConsumption: b.yesterdayConsumption,
       dailyChangePercent,
+      historyCoverageDays: b.historyCoverageDays,
+      dailyBalanceChange,
       severity,
       lastUpdated: b.lastUpdated,
     };

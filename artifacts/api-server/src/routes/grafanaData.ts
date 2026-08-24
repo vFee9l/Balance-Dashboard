@@ -14,6 +14,9 @@ export interface ClientBalanceData {
   recentDailyConsumption: number;
   yesterdayConsumption: number;
   dayBeforeConsumption: number | null;
+  historyCoverageDays: number;
+  yesterdayBalance: number | null;
+  dayBeforeBalance: number | null;
   financeId: string | null;
   lastUpdated: string;
 }
@@ -29,6 +32,10 @@ export interface OrganizationStudyPoint {
   date: string;
   balance: number;
   consumption: number;
+  balanceChange: number | null;
+  isComplete: boolean;
+  organizationCount: number;
+  expectedOrganizationCount: number;
 }
 
 export interface OrganizationChildBalance {
@@ -61,6 +68,7 @@ export interface OrganizationStudyData {
 interface RawStudyPoint {
   point: OrganizationStudyPoint;
   hasCompleteHierarchy: boolean;
+  hasValidInterval: boolean;
 }
 
 export function frameRows(frames: GrafanaFrame[]): Record<string, unknown>[] {
@@ -89,6 +97,12 @@ function stringValue(value: unknown): string | null {
 function numberValue(value: unknown): number {
   const number = Number(value);
   return Number.isFinite(number) ? number : 0;
+}
+
+function nullableNumberValue(value: unknown): number | null {
+  if (value === null || value === undefined || value === "") return null;
+  const number = Number(value);
+  return Number.isFinite(number) ? number : null;
 }
 
 function organisationFromRow(row: Record<string, unknown>): DashboardOrganization | null {
@@ -139,6 +153,35 @@ function extractStringFrameMap(frames: GrafanaFrame[], metricField: string, valu
   return map;
 }
 
+function extractNullableNumberFrameMap(
+  frames: GrafanaFrame[],
+  metricField: string,
+  valueField: string,
+): Map<string, number | null> {
+  const map = new Map<string, number | null>();
+  for (const frame of frames) {
+    const fields = frame.schema?.fields ?? [];
+    const values = frame.data?.values ?? [];
+    const metricIdx = fields.findIndex((field) => field.name === metricField);
+    const valueIdx = fields.findIndex((field) => field.name === valueField);
+    if (metricIdx === -1 || valueIdx === -1) continue;
+    const metrics = (values[metricIdx] ?? []) as unknown[];
+    const vals = (values[valueIdx] ?? []) as unknown[];
+    for (let index = 0; index < metrics.length; index++) {
+      const metric = stringValue(metrics[index]);
+      if (!metric || map.has(metric)) continue;
+      const rawValue = vals[index];
+      if (rawValue === null || rawValue === undefined || rawValue === "") {
+        map.set(metric, null);
+        continue;
+      }
+      const value = Number(rawValue);
+      map.set(metric, Number.isFinite(value) ? value : null);
+    }
+  }
+  return map;
+}
+
 export function parseOrganizationChildren(frames: GrafanaFrame[]): OrganizationChildBalance[] {
   return frameRows(frames)
     .map((row): OrganizationChildBalance | null => {
@@ -182,17 +225,23 @@ export function parseFramesToBalances(
   const recentConsumptionMap = extractFrameMap(recentConsumptionFrames, "metric", "Avg_Daily_Consumption_Recent");
   const yesterdayMap = extractFrameMap(dayOverDayFrames, "metric", "yesterday_consumption");
   const dayBeforeMap = extractFrameMap(dayOverDayFrames, "metric", "day_before_consumption");
+  const longRateIntervalMap = extractFrameMap(consumptionFrames, "metric", "long_rate_interval_count");
+  const recentRateIntervalMap = extractFrameMap(recentConsumptionFrames, "metric", "recent_rate_interval_count");
+  const coverageMap = extractFrameMap(consumptionFrames, "metric", "history_coverage_days");
+  const yesterdayBalanceMap = extractNullableNumberFrameMap(dayOverDayFrames, "metric", "yesterday_balance");
+  const dayBeforeBalanceMap = extractNullableNumberFrameMap(dayOverDayFrames, "metric", "day_before_balance");
 
   const result: ClientBalanceData[] = [];
   for (const [metric, remainingBalance] of balanceMap.entries()) {
-    const dailyConsumption = consumptionMap.get(metric) ?? 0;
+    const longRateIntervals = longRateIntervalMap.get(metric) ?? 0;
+    const recentRateIntervals = recentRateIntervalMap.get(metric) ?? 0;
+    const dailyConsumption = longRateIntervals >= 20 ? (consumptionMap.get(metric) ?? 0) : 0;
     const yesterdayConsumption = yesterdayMap.get(metric) ?? 0;
     const dayBeforeRaw = dayBeforeMap.get(metric);
     const dayBeforeConsumption = dayBeforeRaw !== undefined ? dayBeforeRaw : null;
-    const rawRecent = recentConsumptionMap.get(metric) ?? 0;
-    const recentDailyConsumption = rawRecent > 0
-      ? rawRecent
-      : (dailyConsumption === 0 && yesterdayConsumption > 0 ? yesterdayConsumption : 0);
+    const recentDailyConsumption = recentRateIntervals >= 5
+      ? (recentConsumptionMap.get(metric) ?? 0)
+      : 0;
 
     result.push({
       metric,
@@ -201,6 +250,9 @@ export function parseFramesToBalances(
       recentDailyConsumption,
       yesterdayConsumption,
       dayBeforeConsumption,
+      historyCoverageDays: coverageMap.get(metric) ?? 0,
+      yesterdayBalance: yesterdayBalanceMap.get(metric) ?? null,
+      dayBeforeBalance: dayBeforeBalanceMap.get(metric) ?? null,
       financeId: financeIdMap.get(metric) ?? null,
       lastUpdated: fetchedAt,
     });
@@ -331,23 +383,28 @@ export function buildOrganizationStudy(input: {
           date,
           balance: numberValue(row.balance),
           consumption: numberValue(row.consumption),
+          balanceChange: nullableNumberValue(row.balance_change),
+          isComplete: numberValue(row.is_complete) === 1,
+          organizationCount: numberValue(row.organization_count),
+          expectedOrganizationCount: numberValue(row.expected_organization_count),
         },
         hasCompleteHierarchy: numberValue(row.is_complete) === 1,
+        hasValidInterval: numberValue(row.is_valid_interval) === 1,
       };
     })
     .filter((entry): entry is RawStudyPoint => entry !== null)
     .sort((a, b) => a.point.date.localeCompare(b.point.date));
 
   const incompleteHierarchyDays = rawHistory.filter((entry) => !entry.hasCompleteHierarchy).length;
-  const completeHistory = rawHistory
-    .filter((entry) => entry.hasCompleteHierarchy)
+  const forecastEligibleHistory = rawHistory
+    .filter((entry) => entry.hasCompleteHierarchy && entry.hasValidInterval)
     .map((entry) => entry.point);
   // The SQL filters gap pairs before it emits a consumption row. Keep a
   // boundary check here too: only the most recent contiguous daily run may
   // contribute to a rate, so a future query change cannot combine separate
   // windows into a one-day estimate.
-  const history = mostRecentContiguousRun(completeHistory);
-  const fragmentedHistoryIntervals = completeHistory.length - history.length;
+  const history = mostRecentContiguousRun(forecastEligibleHistory);
+  const fragmentedHistoryIntervals = forecastEligibleHistory.length - history.length;
   const rate = chooseStudyRate(history);
   const thresholds = input.thresholds ?? {};
   const rawDays = rate.averageDailyConsumption > 0
@@ -391,7 +448,7 @@ export function buildOrganizationStudy(input: {
     usesOrgBalance: organization.usesOrgBalance,
     remainingBalance: organization.remainingBalance,
     children: parseOrganizationChildren(input.childFrames),
-    dailyHistory: history,
+    dailyHistory: rawHistory.map((entry) => entry.point),
     averageDailyConsumption: rate.averageDailyConsumption,
     rateWindowDays: rate.rateWindowDays,
     coverageDays: history.length,

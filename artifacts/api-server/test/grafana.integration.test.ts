@@ -42,6 +42,11 @@ const hierarchyRatesIncludingChild = frame(
     "Avg_Daily_Consumption_Recent",
     "yesterday_consumption",
     "day_before_consumption",
+    "long_rate_interval_count",
+    "recent_rate_interval_count",
+    "history_coverage_days",
+    "yesterday_balance",
+    "day_before_balance",
   ],
   [
     ["AlRajhi", "AlRajhi - child balance"],
@@ -49,6 +54,11 @@ const hierarchyRatesIncludingChild = frame(
     [130, 40],
     [120, 40],
     [110, 40],
+    [30, 30],
+    [7, 7],
+    [30, 30],
+    [1_234_567.89, 1_000],
+    [1_234_447.89, 960],
   ],
 );
 
@@ -102,6 +112,9 @@ test("calculated hierarchy summary produces one AlRajhi alert target", () => {
     recentDailyConsumption: 130,
     yesterdayConsumption: 120,
     dayBeforeConsumption: 110,
+    historyCoverageDays: 30,
+    yesterdayBalance: 1_234_567.89,
+    dayBeforeBalance: 1_234_447.89,
     lastUpdated: fetchWindow,
   });
 });
@@ -109,12 +122,16 @@ test("calculated hierarchy summary produces one AlRajhi alert target", () => {
 test("organization study uses the calculated summary balance with populated 90-day history", () => {
   const start = Date.UTC(2026, 4, 27);
   const history = frame(
-    ["date", "balance", "consumption", "is_complete"],
+    ["date", "balance", "consumption", "balance_change", "is_complete", "is_valid_interval", "organization_count", "expected_organization_count"],
     [
       Array.from({ length: 90 }, (_, day) => new Date(start + day * 86_400_000).toISOString()),
       Array.from({ length: 90 }, (_, day) => 1_245_817.89 - day * 125),
       Array.from({ length: 90 }, () => 125),
+      Array.from({ length: 90 }, () => -125),
       Array.from({ length: 90 }, () => 1),
+      Array.from({ length: 90 }, () => 1),
+      Array.from({ length: 90 }, () => 3),
+      Array.from({ length: 90 }, () => 3),
     ],
   );
 
@@ -158,12 +175,16 @@ test("organization study uses the calculated summary balance with populated 90-d
 
 test("organization study reports missing hierarchy history as a data-quality state", () => {
   const partialHistory = frame(
-    ["date", "balance", "consumption", "is_complete"],
+    ["date", "balance", "consumption", "balance_change", "is_complete", "is_valid_interval", "organization_count", "expected_organization_count"],
     [
       ["2026-08-22T00:00:00.000Z", "2026-08-23T00:00:00.000Z"],
       [1_245_817.89, 1_245_692.89],
-      [125, 125],
       [0, 0],
+      [null, null],
+      [0, 0],
+      [0, 0],
+      [2, 2],
+      [3, 3],
     ],
   );
 
@@ -183,6 +204,26 @@ test("organization study reports missing hierarchy history as a data-quality sta
   assert.equal(study.daysRemaining, -1);
   assert.equal(study.rateBasis, "Insufficient daily history");
   assert.deepEqual(study.children, []);
+  assert.deepEqual(study.dailyHistory, [
+    {
+      date: "2026-08-22T00:00:00.000Z",
+      balance: 1_245_817.89,
+      consumption: 0,
+      balanceChange: null,
+      isComplete: false,
+      organizationCount: 2,
+      expectedOrganizationCount: 3,
+    },
+    {
+      date: "2026-08-23T00:00:00.000Z",
+      balance: 1_245_692.89,
+      consumption: 0,
+      balanceChange: null,
+      isComplete: false,
+      organizationCount: 2,
+      expectedOrganizationCount: 3,
+    },
+  ]);
   assert.deepEqual(study.dataQuality, [
     "2 partial hierarchy day(s) were excluded from the consumption forecast.",
     "Only 0 days of usable history are available.",
@@ -193,11 +234,15 @@ test("organization study reports missing hierarchy history as a data-quality sta
 test("standard organization with complete history keeps a numeric estimate", () => {
   const start = Date.UTC(2026, 7, 17);
   const history = frame(
-    ["date", "balance", "consumption", "is_complete"],
+    ["date", "balance", "consumption", "balance_change", "is_complete", "is_valid_interval", "organization_count", "expected_organization_count"],
     [
       Array.from({ length: 7 }, (_, day) => new Date(start + day * 86_400_000).toISOString()),
       Array.from({ length: 7 }, (_, day) => 12_700 - day * 100),
       Array.from({ length: 7 }, () => 100),
+      Array.from({ length: 7 }, () => -100),
+      Array.from({ length: 7 }, () => 1),
+      Array.from({ length: 7 }, () => 1),
+      Array.from({ length: 7 }, () => 1),
       Array.from({ length: 7 }, () => 1),
     ],
   );
@@ -218,18 +263,24 @@ test("standard organization with complete history keeps a numeric estimate", () 
   assert.equal(study.averageDailyConsumption, 100);
   assert.equal(study.daysRemaining, 120);
   assert.equal(study.rateBasis, "7-day fallback average (7 valid daily intervals)");
+  assert.equal(study.dailyHistory[1]?.balanceChange, -100);
+  assert.equal(study.dailyHistory[1]?.isComplete, true);
 });
 
 test("organization study never combines separate history runs for a forecast", () => {
   const firstRunDays = Array.from({ length: 60 }, (_, day) => new Date(Date.UTC(2026, 5, 1 + day)).toISOString());
   const latestRunDays = Array.from({ length: 4 }, (_, day) => new Date(Date.UTC(2026, 7, 2 + day)).toISOString());
   const fragmentedHistory = frame(
-    ["date", "balance", "consumption", "is_complete"],
+    ["date", "balance", "consumption", "balance_change", "is_complete", "is_valid_interval", "organization_count", "expected_organization_count"],
     [
       [...firstRunDays, ...latestRunDays],
       Array.from({ length: 64 }, (_, day) => 1_245_817.89 - day * 125),
       [...Array.from({ length: 60 }, () => 125), ...Array.from({ length: 4 }, () => 500)],
+      Array.from({ length: 64 }, () => -125),
       Array.from({ length: 64 }, () => 1),
+      Array.from({ length: 64 }, () => 1),
+      Array.from({ length: 64 }, () => 3),
+      Array.from({ length: 64 }, () => 3),
     ],
   );
 

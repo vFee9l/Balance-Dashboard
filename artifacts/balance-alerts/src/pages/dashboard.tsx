@@ -21,6 +21,8 @@ type ClientBalance = {
   usingFallbackRate?: boolean;
   yesterdayConsumption: number;
   dailyChangePercent?: number | null;
+  historyCoverageDays: number;
+  dailyBalanceChange: number | null;
   severity: string;
   lastUpdated?: string | null;
 };
@@ -242,8 +244,10 @@ export default function Dashboard() {
           const bVal = b.dailyConsumption > 0 ? b.dailyConsumption : (b.recentDailyConsumption ?? 0);
           return dir * (aVal - bVal);
         }
-        case "dailyChangePercent":
-          return dir * ((a.dailyChangePercent ?? 0) - (b.dailyChangePercent ?? 0));
+        case "historyCoverageDays":
+          return dir * (a.historyCoverageDays - b.historyCoverageDays);
+        case "dailyBalanceChange":
+          return dir * ((a.dailyBalanceChange ?? 0) - (b.dailyBalanceChange ?? 0));
         case "daysRemaining": {
           const aD = a.daysRemaining ?? Infinity;
           const bD = b.daysRemaining ?? Infinity;
@@ -488,7 +492,8 @@ export default function Dashboard() {
                 <TableHead className="text-muted-foreground text-xs font-medium w-20">ID</TableHead>
                 <SortableHead col="remainingBalance" label="Balance" sortCol={sortCol} sortDir={sortDir} onSort={handleSort} align="right" />
                 <SortableHead col="dailyConsumption" label="Avg/Day (prev. mo.)" sortCol={sortCol} sortDir={sortDir} onSort={handleSort} align="right" title="Average daily consumption based on the previous 30 days" />
-                <SortableHead col="dailyChangePercent" label="Daily Δ" sortCol={sortCol} sortDir={sortDir} onSort={handleSort} align="right" title="Yesterday's consumption vs the day before: red = increased (burning faster), green = decreased" />
+                <SortableHead col="historyCoverageDays" label="History" sortCol={sortCol} sortDir={sortDir} onSort={handleSort} align="right" title="Valid complete daily intervals in the latest contiguous history run" />
+                <SortableHead col="dailyBalanceChange" label="Balance Δ" sortCol={sortCol} sortDir={sortDir} onSort={handleSort} align="right" title="Yesterday's balance movement versus the prior day" />
                 <SortableHead col="daysRemaining" label="Est. Days" sortCol={sortCol} sortDir={sortDir} onSort={handleSort} align="right" title="Estimated days remaining based on average daily consumption rate" />
                 <SortableHead col="severity" label="Status" sortCol={sortCol} sortDir={sortDir} onSort={handleSort} align="left" />
                 <SortableHead col="lastUpdated" label="Last Updated" sortCol={sortCol} sortDir={sortDir} onSort={handleSort} align="right" />
@@ -503,6 +508,7 @@ export default function Dashboard() {
                     <TableCell className="text-right"><Skeleton className="h-5 w-20 ml-auto" /></TableCell>
                     <TableCell className="text-right"><Skeleton className="h-5 w-20 ml-auto" /></TableCell>
                     <TableCell className="text-right"><Skeleton className="h-5 w-16 ml-auto" /></TableCell>
+                    <TableCell className="text-right"><Skeleton className="h-5 w-14 ml-auto" /></TableCell>
                     <TableCell className="text-right"><Skeleton className="h-5 w-16 ml-auto" /></TableCell>
                     <TableCell><Skeleton className="h-5 w-24" /></TableCell>
                     <TableCell className="text-right"><Skeleton className="h-5 w-24 ml-auto" /></TableCell>
@@ -510,7 +516,7 @@ export default function Dashboard() {
                 ))
               ) : filteredBalances.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={8} className="h-24 text-center text-muted-foreground">
+                  <TableCell colSpan={9} className="h-24 text-center text-muted-foreground">
                     {balances?.length === 0
                       ? "No client balance data available. Check Grafana connection in Settings."
                       : "No clients match the current filters."}
@@ -551,54 +557,26 @@ export default function Dashboard() {
                       )}
                     </TableCell>
                     <TableCell className="text-right">
-                      {balance.dailyChangePercent === null || balance.dailyChangePercent === undefined ? (
+                      {balance.historyCoverageDays > 0 ? (
+                        <span className="font-mono text-xs">{balance.historyCoverageDays}d</span>
+                      ) : (
+                        <span className="text-muted-foreground text-xs">—</span>
+                      )}
+                    </TableCell>
+                    <TableCell className="text-right">
+                      {balance.dailyBalanceChange === null ? (
                         <span className="text-muted-foreground text-xs">—</span>
                       ) : (
-                        <TooltipProvider delayDuration={200}>
-                          <Tooltip>
-                            <TooltipTrigger asChild>
-                              <span className={`inline-flex items-center gap-0.5 text-xs font-bold font-mono px-1.5 py-0.5 rounded ${
-                                balance.dailyChangePercent > 5
-                                  ? "bg-green-500/15 text-green-400"
-                                  : balance.dailyChangePercent < -5
-                                  ? "bg-red-500/15 text-red-400"
-                                  : "bg-muted/40 text-muted-foreground"
-                              }`}>
-                                {balance.dailyChangePercent > 0 ? "↑" : balance.dailyChangePercent < 0 ? "↓" : "→"}
-                                {" "}{Math.abs(balance.dailyChangePercent).toFixed(1)}%
-                              </span>
-                            </TooltipTrigger>
-                            <TooltipContent side="left" className="p-0 bg-popover text-popover-foreground border border-border/60 shadow-lg">
-                              <div className="p-3 space-y-2">
-                                <p className="text-xs font-semibold text-foreground border-b border-border/40 pb-1.5">Daily Consumption Study</p>
-                                <div className="flex justify-between gap-6 text-xs">
-                                  <span className="text-muted-foreground">Yesterday</span>
-                                  <span className="font-mono font-semibold">{formatBalance(balance.yesterdayConsumption)}</span>
-                                </div>
-                                <div className="flex justify-between gap-6 text-xs">
-                                  <span className="text-muted-foreground">Day before</span>
-                                  <span className="font-mono font-semibold">
-                                    {balance.dailyChangePercent !== null
-                                      ? formatBalance(balance.yesterdayConsumption / (1 + balance.dailyChangePercent / 100))
-                                      : "—"}
-                                  </span>
-                                </div>
-                                <div className={`flex justify-between gap-6 text-xs border-t border-border/40 pt-1.5 font-semibold ${
-                                  balance.dailyChangePercent > 5 ? "text-green-400"
-                                  : balance.dailyChangePercent < -5 ? "text-red-400"
-                                  : "text-muted-foreground"
-                                }`}>
-                                  <span>Change</span>
-                                  <span className="font-mono">
-                                    {balance.dailyChangePercent > 0 ? "+" : ""}
-                                    {balance.dailyChangePercent.toFixed(1)}%
-                                    {balance.dailyChangePercent > 5 ? " ↑ Higher" : balance.dailyChangePercent < -5 ? " ↓ Lower" : " ≈ Stable"}
-                                  </span>
-                                </div>
-                              </div>
-                            </TooltipContent>
-                          </Tooltip>
-                        </TooltipProvider>
+                        <span className={`font-mono text-xs font-semibold ${
+                          balance.dailyBalanceChange > 0
+                            ? "text-green-400"
+                            : balance.dailyBalanceChange < 0
+                            ? "text-red-400"
+                            : "text-muted-foreground"
+                        }`}>
+                          {balance.dailyBalanceChange > 0 ? "+" : ""}
+                          {formatBalance(balance.dailyBalanceChange)}
+                        </span>
                       )}
                     </TableCell>
                     <TableCell className="text-right font-bold text-lg">

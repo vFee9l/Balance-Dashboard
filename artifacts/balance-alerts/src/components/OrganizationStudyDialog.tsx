@@ -227,7 +227,7 @@ export default function OrganizationStudyDialog({
                   </div>
                   <p className="mt-2 font-mono text-xl font-semibold">{study.coverageDays} days</p>
                   <p className="mt-1 text-xs text-muted-foreground">
-                    {study.rateWindowDays > 0 ? `${study.rateWindowDays}-day rate window` : "No usable rate window"}
+                    {study.dailyHistory.length} recorded day{study.dailyHistory.length === 1 ? "" : "s"} · {study.rateWindowDays > 0 ? `${study.rateWindowDays}-day rate window` : "No usable rate window"}
                   </p>
                 </CardContent>
               </Card>
@@ -300,7 +300,7 @@ export default function OrganizationStudyDialog({
                   <TrendingUp className="h-4 w-4 text-primary" />
                   <div>
                     <p className="text-sm font-semibold">Daily consumption study</p>
-                    <p className="text-xs text-muted-foreground">Positive daily balance drops across up to 90 days of Grafana history.</p>
+                    <p className="text-xs text-muted-foreground">Positive balance drops from complete consecutive dates; partial days stay visible in the summary below.</p>
                   </div>
                 </div>
                 {chartData.length > 0 ? (
@@ -325,7 +325,7 @@ export default function OrganizationStudyDialog({
               <CardContent className="p-0">
                 <div className="border-b border-border/60 px-4 py-3">
                   <p className="text-sm font-semibold">Daily balance summary</p>
-                  <p className="text-xs text-muted-foreground">Most recent days first</p>
+                  <p className="text-xs text-muted-foreground">Most recent days first · partial coverage is shown instead of hidden</p>
                 </div>
                 <div className="max-h-64 overflow-auto">
                   <Table>
@@ -333,13 +333,15 @@ export default function OrganizationStudyDialog({
                       <TableRow>
                         <TableHead>Date</TableHead>
                         <TableHead className="text-right">Balance</TableHead>
+                        <TableHead className="text-right">Balance Δ</TableHead>
                         <TableHead className="text-right">Consumed</TableHead>
+                        <TableHead className="text-right">Coverage</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
                       {historyRows.length === 0 ? (
                         <TableRow>
-                          <TableCell colSpan={3} className="h-20 text-center text-muted-foreground">
+                          <TableCell colSpan={5} className="h-20 text-center text-muted-foreground">
                             No daily balance history is available.
                           </TableCell>
                         </TableRow>
@@ -347,7 +349,21 @@ export default function OrganizationStudyDialog({
                         <TableRow key={point.date}>
                           <TableCell className="font-mono text-xs">{formatDate(point.date)}</TableCell>
                           <TableCell className="text-right font-mono text-xs">{formatExactValue(point.balance)}</TableCell>
+                          <TableCell className={`text-right font-mono text-xs ${
+                            point.balanceChange === null
+                              ? "text-muted-foreground"
+                              : point.balanceChange > 0
+                              ? "text-green-400"
+                              : point.balanceChange < 0
+                              ? "text-red-400"
+                              : "text-muted-foreground"
+                          }`}>
+                            {point.balanceChange === null ? "—" : `${point.balanceChange > 0 ? "+" : ""}${formatExactValue(point.balanceChange)}`}
+                          </TableCell>
                           <TableCell className="text-right font-mono text-xs">{formatExactValue(point.consumption)}</TableCell>
+                          <TableCell className={`text-right font-mono text-xs ${point.isComplete ? "text-green-400" : "text-yellow-400"}`}>
+                            {point.organizationCount}/{point.expectedOrganizationCount} {point.isComplete ? "complete" : "partial"}
+                          </TableCell>
                         </TableRow>
                       ))}
                     </TableBody>

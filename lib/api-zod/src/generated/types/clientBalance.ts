@@ -27,6 +27,13 @@ export interface ClientBalance {
      * @nullable
      */
   dailyChangePercent?: number | null;
+  /** Count of valid daily balance intervals in the current contiguous history run */
+  historyCoverageDays: number;
+  /**
+     * Yesterday's balance minus the prior day's balance (positive means the balance increased)
+     * @nullable
+     */
+  dailyBalanceChange: number | null;
   severity: string;
   /** @nullable */
   lastUpdated?: string | null;

@@ -699,7 +699,7 @@ components:
 
     ClientBalance:
       type: object
-      required: [metric, remainingBalance, dailyConsumption, daysRemaining, severity, recentDailyConsumption, daysRemainingRecent, yesterdayConsumption]
+      required: [metric, remainingBalance, dailyConsumption, daysRemaining, severity, recentDailyConsumption, daysRemainingRecent, yesterdayConsumption, historyCoverageDays, dailyBalanceChange]
       properties:
         metric:
           type: string
@@ -724,6 +724,12 @@ components:
         dailyChangePercent:
           type: ["number", "null"]
           description: "Percentage change in consumption: yesterday vs day before (null if insufficient data)"
+        historyCoverageDays:
+          type: integer
+          description: Count of valid daily balance intervals in the current contiguous history run
+        dailyBalanceChange:
+          type: ["number", "null"]
+          description: "Yesterday's balance minus the prior day's balance (positive means the balance increased)"
         severity:
           type: string
         lastUpdated:
@@ -774,7 +780,7 @@ components:
 
     OrganizationStudyPoint:
       type: object
-      required: [date, balance, consumption]
+      required: [date, balance, consumption, balanceChange, isComplete, organizationCount, expectedOrganizationCount]
       properties:
         date:
           type: string
@@ -782,6 +788,19 @@ components:
           type: number
         consumption:
           type: number
+          description: Positive balance drop for a complete, consecutive daily interval; zero when no valid interval exists
+        balanceChange:
+          type: ["number", "null"]
+          description: Balance movement since the prior complete, consecutive daily point; positive means an increase
+        isComplete:
+          type: boolean
+          description: Whether every balance-contributing organization reported a snapshot on this date
+        organizationCount:
+          type: integer
+          description: Number of balance-contributing organizations with a snapshot on this date
+        expectedOrganizationCount:
+          type: integer
+          description: Number of balance-contributing organizations expected for complete hierarchy coverage
 
     OrganizationChildBalance:
       type: object
