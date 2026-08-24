@@ -10,6 +10,13 @@ import {
 import { logger } from "../lib/logger";
 import { recordGrafanaFetch } from "../lib/healthTracker.js";
 import nodemailer from "nodemailer";
+import {
+  buildOrganizationStudy,
+  parseDashboardOrganizations,
+  parseFramesToBalances,
+  type ClientBalanceData,
+  type GrafanaFrame,
+} from "./grafanaData.js";
 
 // Custom undici agent with a 30-second TCP connect timeout (default is 10 s).
 // Grafana at grafana.t2.sa can be slow to accept connections under load.
@@ -20,25 +27,6 @@ const grafanaRootOrganizationId = "156347F0-A8AC-45EA-85AD-701F4F925F5C";
 
 const router = Router();
 
-interface ClientBalanceData {
-  metric: string;
-  remainingBalance: number;
-  dailyConsumption: number;
-  recentDailyConsumption: number;
-  yesterdayConsumption: number;
-  dayBeforeConsumption: number | null;
-  financeId: string | null;
-}
-
-interface GrafanaFrame {
-  schema: {
-    fields: Array<{ name: string; type: string }>;
-  };
-  data: {
-    values: unknown[][];
-  };
-}
-
 interface GrafanaQueryResponse {
   results: {
     [refId: string]: {
@@ -46,21 +34,6 @@ interface GrafanaQueryResponse {
       error?: string;
     };
   };
-}
-
-type GrafanaRow = Record<string, unknown>;
-
-interface DashboardOrganization {
-  metric: string;
-  financeId: string | null;
-  usesOrgBalance: boolean;
-  remainingBalance: number;
-}
-
-interface OrganizationStudyPoint {
-  date: string;
-  balance: number;
-  consumption: number;
 }
 
 // This is the same calculated hierarchy total used by Grafana dashboard th4qhrb.
@@ -422,138 +395,19 @@ async function fetchGrafanaBalances(): Promise<ClientBalanceData[]> {
     }
 
     recordGrafanaFetch(true);
-    return parseFramesToBalances(balanceFrames, consumptionFrames, recentConsumptionFrames, dayOverDayFrames);
+    return parseFramesToBalances(
+      balanceFrames,
+      consumptionFrames,
+      recentConsumptionFrames,
+      dayOverDayFrames,
+      new Date().toISOString(),
+    );
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     logger.error({ err }, "Grafana fetch error");
     recordGrafanaFetch(false, msg);
     return [];
   }
-}
-
-function extractFrameMap(frames: GrafanaFrame[], metricField: string, valueField: string): Map<string, number> {
-  const map = new Map<string, number>();
-  for (const frame of frames) {
-    const fields = frame.schema?.fields ?? [];
-    const values = frame.data?.values ?? [];
-    const metricIdx = fields.findIndex((f) => f.name === metricField);
-    const valueIdx = fields.findIndex((f) => f.name === valueField);
-    if (metricIdx === -1 || valueIdx === -1) continue;
-    const metrics = (values[metricIdx] ?? []) as string[];
-    const vals = (values[valueIdx] ?? []) as number[];
-    for (let i = 0; i < metrics.length; i++) {
-      map.set(metrics[i], Number(vals[i] ?? 0));
-    }
-  }
-  return map;
-}
-
-function extractStringFrameMap(frames: GrafanaFrame[], metricField: string, valueField: string): Map<string, string> {
-  const map = new Map<string, string>();
-  for (const frame of frames) {
-    const fields = frame.schema?.fields ?? [];
-    const values = frame.data?.values ?? [];
-    const metricIdx = fields.findIndex((f) => f.name === metricField);
-    const valueIdx = fields.findIndex((f) => f.name === valueField);
-    if (metricIdx === -1 || valueIdx === -1) continue;
-    const metrics = (values[metricIdx] ?? []) as string[];
-    const vals = (values[valueIdx] ?? []) as (string | number | null)[];
-    for (let i = 0; i < metrics.length; i++) {
-      const v = vals[i];
-      if (v !== undefined && v !== null && String(v).trim() !== "") {
-        map.set(metrics[i], String(v).trim());
-      }
-    }
-  }
-  return map;
-}
-
-function parseFramesToBalances(
-  balanceFrames: GrafanaFrame[],
-  consumptionFrames: GrafanaFrame[],
-  recentConsumptionFrames: GrafanaFrame[],
-  dayOverDayFrames: GrafanaFrame[]
-): ClientBalanceData[] {
-  // Build balance map: metric → latest remaining balance
-  const balanceMap = extractFrameMap(balanceFrames, "metric", "Remaining_Balance");
-
-  const financeIdMap = extractStringFrameMap(balanceFrames, "metric", "finance_id");
-
-  // Build consumption map: metric → avg daily consumption (same period last month)
-  const consumptionMap = extractFrameMap(consumptionFrames, "metric", "Avg_Daily_Consumption");
-
-  // Build recent consumption map: metric → avg daily consumption (last 7 days)
-  const recentConsumptionMap = extractFrameMap(recentConsumptionFrames, "metric", "Avg_Daily_Consumption_Recent");
-
-  // Build day-over-day maps: yesterday and day-before consumption
-  const yesterdayMap = extractFrameMap(dayOverDayFrames, "metric", "yesterday_consumption");
-  const dayBeforeMap = extractFrameMap(dayOverDayFrames, "metric", "day_before_consumption");
-
-  const result: ClientBalanceData[] = [];
-  for (const [metric, remainingBalance] of balanceMap.entries()) {
-    const dailyConsumption = consumptionMap.get(metric) ?? 0;
-    const yesterdayConsumption = yesterdayMap.get(metric) ?? 0;
-    const dayBeforeRaw = dayBeforeMap.get(metric);
-    const dayBeforeConsumption = dayBeforeRaw !== undefined ? dayBeforeRaw : null;
-
-    // Prefer the 9-day adaptive rate; if it's still 0 but we have yesterday's
-    // actual consumption, use that as a last-resort 1-day rate estimate.
-    const rawRecent = recentConsumptionMap.get(metric) ?? 0;
-    const recentDailyConsumption = rawRecent > 0 ? rawRecent : (dailyConsumption === 0 && yesterdayConsumption > 0 ? yesterdayConsumption : 0);
-
-    const financeId = financeIdMap.get(metric) ?? null;
-    result.push({ metric, remainingBalance, dailyConsumption, recentDailyConsumption, yesterdayConsumption, dayBeforeConsumption, financeId });
-  }
-
-  // Sort by effective days remaining (monthly rate preferred, 7-day fallback).
-  // Clients with no consumption data at all sort to the bottom.
-  return result.sort((a, b) => {
-    const effA = a.dailyConsumption > 0 ? a.dailyConsumption : a.recentDailyConsumption;
-    const effB = b.dailyConsumption > 0 ? b.dailyConsumption : b.recentDailyConsumption;
-    const daysA = effA > 0 ? a.remainingBalance / effA : Infinity;
-    const daysB = effB > 0 ? b.remainingBalance / effB : Infinity;
-    return daysA - daysB;
-  });
-}
-
-function frameRows(frames: GrafanaFrame[]): GrafanaRow[] {
-  const rows: GrafanaRow[] = [];
-  for (const frame of frames) {
-    const fields = frame.schema?.fields ?? [];
-    const values = frame.data?.values ?? [];
-    const rowCount = Math.max(0, ...values.map((value) => Array.isArray(value) ? value.length : 0));
-    for (let rowIndex = 0; rowIndex < rowCount; rowIndex++) {
-      const row: GrafanaRow = {};
-      for (let fieldIndex = 0; fieldIndex < fields.length; fieldIndex++) {
-        row[fields[fieldIndex].name] = values[fieldIndex]?.[rowIndex] ?? null;
-      }
-      rows.push(row);
-    }
-  }
-  return rows;
-}
-
-function stringValue(value: unknown): string | null {
-  if (value === null || value === undefined) return null;
-  const text = String(value);
-  return text === "" ? null : text;
-}
-
-function numberValue(value: unknown): number {
-  const number = Number(value);
-  return Number.isFinite(number) ? number : 0;
-}
-
-function organisationFromRow(row: GrafanaRow): DashboardOrganization | null {
-  const metric = stringValue(row.metric);
-  if (!metric) return null;
-  const financeId = stringValue(row.finance_id);
-  return {
-    metric,
-    financeId,
-    usesOrgBalance: numberValue(row.uses_org_balance) === 1,
-    remainingBalance: numberValue(row.Remaining_Balance),
-  };
 }
 
 async function queryGrafana(queries: Array<{ refId: string; rawSql: string }>): Promise<GrafanaQueryResponse> {
@@ -694,37 +548,10 @@ function studyHistorySql(metric: string): string {
   `;
 }
 
-function toIsoDate(value: unknown): string | null {
-  const date = new Date(typeof value === "number" ? value : String(value));
-  return Number.isNaN(date.getTime()) ? null : date.toISOString();
-}
-
-function chooseStudyRate(history: OrganizationStudyPoint[]): {
-  averageDailyConsumption: number;
-  rateWindowDays: number;
-  rateBasis: string;
-} {
-  const candidates = [
-    { window: 90, minimumCoverage: 60, label: "90-day average" },
-    { window: 30, minimumCoverage: 20, label: "30-day fallback average" },
-    { window: 7, minimumCoverage: 5, label: "7-day fallback average" },
-  ];
-
-  for (const candidate of candidates) {
-    const points = history.slice(-candidate.window);
-    if (points.length < candidate.minimumCoverage) continue;
-    const averageDailyConsumption = points.reduce((total, point) => total + point.consumption, 0) / points.length;
-    return { averageDailyConsumption, rateWindowDays: points.length, rateBasis: candidate.label };
-  }
-  return { averageDailyConsumption: 0, rateWindowDays: 0, rateBasis: "Insufficient daily history" };
-}
-
 router.get("/grafana/organizations", async (req, res): Promise<void> => {
   try {
     const data = await queryGrafana([{ refId: "S", rawSql: dashboardSummarySql }]);
-    const organizations = frameRows(data.results.S?.frames ?? [])
-      .map(organisationFromRow)
-      .filter((organization): organization is DashboardOrganization => organization !== null);
+    const organizations = parseDashboardOrganizations(data.results.S?.frames ?? []);
     res.json(ListGrafanaOrganizationsResponse.parse(organizations));
   } catch (error) {
     req.log.error({ err: error }, "Failed to load Grafana organization directory");
@@ -744,77 +571,25 @@ router.get("/grafana/organization-study", async (req, res): Promise<void> => {
       { refId: "S", rawSql: dashboardSummarySql },
       { refId: "H", rawSql: studyHistorySql(params.data.metric) },
     ]);
-    const organization = frameRows(data.results.S?.frames ?? [])
-      .map(organisationFromRow)
-      .find((entry) => entry?.metric === params.data.metric);
-    if (!organization) {
+    const fetchedAt = new Date().toISOString();
+    const [settings] = await db.select().from(settingsTable).limit(1);
+    const study = buildOrganizationStudy({
+      summaryFrames: data.results.S?.frames ?? [],
+      historyFrames: data.results.H?.frames ?? [],
+      metric: params.data.metric,
+      fetchedAt,
+      thresholds: {
+        staff: settings?.thresholdStaff ?? 20,
+        manager: settings?.thresholdManager ?? 15,
+        md: settings?.thresholdMd ?? 5,
+        immediate: settings?.thresholdImmediate ?? 1,
+      },
+    });
+    if (!study) {
       res.status(404).json({ error: "Organization was not found in Grafana." });
       return;
     }
-
-    const rawHistory = frameRows(data.results.H?.frames ?? [])
-      .map((row): { point: OrganizationStudyPoint; hasCompleteHierarchy: boolean } | null => {
-        const date = toIsoDate(row.date);
-        if (!date) return null;
-        return {
-          point: {
-            date,
-            balance: numberValue(row.balance),
-            consumption: numberValue(row.consumption),
-          },
-          hasCompleteHierarchy: numberValue(row.is_complete) === 1,
-        };
-      })
-      .filter((entry): entry is { point: OrganizationStudyPoint; hasCompleteHierarchy: boolean } => entry !== null)
-      .sort((a, b) => a.point.date.localeCompare(b.point.date));
-    const incompleteHierarchyDays = rawHistory.filter((entry) => !entry.hasCompleteHierarchy).length;
-    const history = rawHistory
-      .filter((entry) => entry.hasCompleteHierarchy)
-      .map((entry) => entry.point);
-
-    const rate = chooseStudyRate(history);
-    const settingsRows = await db.select().from(settingsTable).limit(1);
-    const settings = settingsRows[0];
-    const rawDays = rate.averageDailyConsumption > 0
-      ? organization.remainingBalance / rate.averageDailyConsumption
-      : null;
-    const daysRemaining = rawDays === null ? -1 : Math.max(0, Math.round(rawDays * 10) / 10);
-    const severity = rawDays === null
-      ? "ok"
-      : computeSeverity(
-          daysRemaining,
-          settings?.thresholdStaff ?? 20,
-          settings?.thresholdManager ?? 15,
-          settings?.thresholdMd ?? 5,
-          settings?.thresholdImmediate ?? 1,
-        );
-    const dataQuality: string[] = [];
-    if (organization.financeId === null || Number(organization.financeId) <= 0) {
-      dataQuality.push("Finance ID is missing or invalid.");
-    }
-    if (organization.remainingBalance < 0) dataQuality.push("Remaining balance is negative.");
-    else if (organization.remainingBalance === 0) dataQuality.push("Remaining balance is zero.");
-    if (incompleteHierarchyDays > 0) {
-      dataQuality.push(`${incompleteHierarchyDays} partial hierarchy day(s) were excluded from the consumption forecast.`);
-    }
-    if (history.length < 60) dataQuality.push(`Only ${history.length} days of usable history are available.`);
-    if (rate.averageDailyConsumption <= 0) dataQuality.push("No positive consumption rate can be calculated from the available history.");
-
-    res.json(GetGrafanaOrganizationStudyResponse.parse({
-      metric: organization.metric,
-      financeId: organization.financeId,
-      usesOrgBalance: organization.usesOrgBalance,
-      remainingBalance: organization.remainingBalance,
-      dailyHistory: history,
-      averageDailyConsumption: rate.averageDailyConsumption,
-      rateWindowDays: rate.rateWindowDays,
-      coverageDays: history.length,
-      daysRemaining,
-      severity,
-      rateBasis: rate.rateBasis,
-      dataQuality,
-      lastUpdated: new Date().toISOString(),
-    }));
+    res.json(GetGrafanaOrganizationStudyResponse.parse(study));
   } catch (error) {
     req.log.error({ err: error, metric: params.data.metric }, "Failed to load Grafana organization study");
     res.status(502).json({ error: "Unable to load organization study from Grafana." });
@@ -1101,7 +876,7 @@ router.get("/grafana/balances", async (req, res): Promise<void> => {
       yesterdayConsumption: b.yesterdayConsumption,
       dailyChangePercent,
       severity,
-      lastUpdated: new Date().toISOString(),
+      lastUpdated: b.lastUpdated,
     };
   });
 
