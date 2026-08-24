@@ -18,10 +18,11 @@ import {
   type GrafanaFrame,
 } from "./grafanaData.js";
 
-// Custom undici agent with a 30-second TCP connect timeout (default is 10 s).
-// Grafana at grafana.t2.sa can be slow to accept connections under load.
-// Both fetch and Agent are from the same undici package to avoid version mismatch.
-const grafanaAgent = new Agent({ connect: { timeout: 30_000 } });
+// Keep external Grafana failures bounded. The dashboard surfaces a clear retry
+// state instead of holding the page in an indeterminate loading state.
+const grafanaAgent = new Agent({ connect: { timeout: 10_000 } });
+const GRAFANA_REQUEST_TIMEOUT_MS = 12_000;
+const GRAFANA_RETRY_DELAY_MS = 1_500;
 const grafanaDatasource = { type: "mssql", uid: "af0fc2y09shdsd" };
 const grafanaRootOrganizationId = "156347F0-A8AC-45EA-85AD-701F4F925F5C";
 
@@ -344,7 +345,7 @@ function buildGrafanaDailyPanelRateSql(): string {
   `;
 }
 
-async function fetchGrafanaBalances(): Promise<ClientBalanceData[]> {
+async function fetchGrafanaBalances(options: { throwOnError?: boolean } = {}): Promise<ClientBalanceData[]> {
   const rows = await db.select().from(settingsTable).limit(1);
   const settings = rows[0];
   const grafanaUrl = settings?.grafanaUrl || "https://grafana.t2.sa";
@@ -633,7 +634,7 @@ async function fetchGrafanaBalances(): Promise<ClientBalanceData[]> {
     method: "POST",
     headers,
     body: JSON.stringify(payload),
-    signal: AbortSignal.timeout(45_000),
+    signal: AbortSignal.timeout(GRAFANA_REQUEST_TIMEOUT_MS),
     dispatcher: grafanaAgent,
   });
 
@@ -642,14 +643,16 @@ async function fetchGrafanaBalances(): Promise<ClientBalanceData[]> {
     try {
       resp = await grafanaFetch();
     } catch (firstErr) {
-      logger.warn({ err: firstErr }, "Grafana fetch failed on first attempt, retrying in 5 s…");
-      await new Promise((r) => setTimeout(r, 5_000));
+      if (options.throwOnError) throw firstErr;
+      logger.warn({ err: firstErr }, "Grafana fetch failed on first attempt, retrying shortly");
+      await new Promise((r) => setTimeout(r, GRAFANA_RETRY_DELAY_MS));
       resp = await grafanaFetch();
     }
 
     if (!resp.ok) {
       logger.warn({ status: resp.status, url: grafanaUrl }, "Grafana query failed");
       recordGrafanaFetch(false, `HTTP ${resp.status}`);
+      if (options.throwOnError) throw new Error(`Grafana returned HTTP ${resp.status}`);
       return [];
     }
 
@@ -686,6 +689,7 @@ async function fetchGrafanaBalances(): Promise<ClientBalanceData[]> {
     const msg = err instanceof Error ? err.message : String(err);
     logger.error({ err }, "Grafana fetch error");
     recordGrafanaFetch(false, msg);
+    if (options.throwOnError) throw err;
     return [];
   }
 }
@@ -716,7 +720,7 @@ async function queryGrafana(queries: Array<{ refId: string; rawSql: string }>): 
       from: "now-95d",
       to: "now",
     }),
-    signal: AbortSignal.timeout(45_000),
+    signal: AbortSignal.timeout(GRAFANA_REQUEST_TIMEOUT_MS),
     dispatcher: grafanaAgent,
   });
 
@@ -725,7 +729,7 @@ async function queryGrafana(queries: Array<{ refId: string; rawSql: string }>): 
     response = await execute();
   } catch (firstError) {
     logger.warn({ err: firstError }, "Grafana dashboard query failed on first attempt, retrying");
-    await new Promise((resolve) => setTimeout(resolve, 3_000));
+    await new Promise((resolve) => setTimeout(resolve, GRAFANA_RETRY_DELAY_MS));
     response = await execute();
   }
   if (!response.ok) throw new Error(`Grafana returned HTTP ${response.status}`);
@@ -1252,7 +1256,18 @@ router.get("/grafana/balances", async (req, res): Promise<void> => {
       .filter((o) => o.length > 0)
   );
 
-  const rawBalances = (await fetchGrafanaBalances()).filter(
+  let fetchedBalances: ClientBalanceData[];
+  try {
+    fetchedBalances = await fetchGrafanaBalances({ throwOnError: true });
+  } catch (error) {
+    req.log.warn({ err: error }, "Live balance data is unavailable");
+    res.status(503).json({
+      error: "Live balance data is temporarily unavailable. Grafana did not respond in time; please retry.",
+    });
+    return;
+  }
+
+  const rawBalances = fetchedBalances.filter(
     (b) => !excludedOrgsSet.has(b.metric.trim().toLowerCase())
   );
 

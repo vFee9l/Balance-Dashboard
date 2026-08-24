@@ -6,8 +6,6 @@ import {
   getGetAlertSummaryQueryKey,
   useTriggerAlerts,
   useGetSettings,
-  useListGrafanaOrganizations,
-  getListGrafanaOrganizationsQueryKey,
 } from "@workspace/api-client-react";
 
 type ClientBalance = {
@@ -117,21 +115,22 @@ export default function Dashboard() {
 
   const refetchMs = Number(refreshInterval) || false;
 
-  const { data: balances, isLoading: isLoadingBalances, isFetching, dataUpdatedAt } = useGetGrafanaBalances({
+  const {
+    data: balances,
+    isLoading: isLoadingBalances,
+    isFetching,
+    isError: isBalanceError,
+    dataUpdatedAt,
+  } = useGetGrafanaBalances({
     query: {
       queryKey: getGetGrafanaBalancesQueryKey(),
       refetchInterval: refetchMs,
+      retry: false,
     },
   });
 
   const { data: settings } = useGetSettings();
-  const { data: organizationDirectory, isLoading: isLoadingOrganizationDirectory } = useListGrafanaOrganizations({
-    query: {
-      staleTime: 60_000,
-      queryKey: getListGrafanaOrganizationsQueryKey(),
-    },
-  });
-  const organizationList = Array.isArray(organizationDirectory) ? organizationDirectory : [];
+  const organizationList = Array.isArray(balances) ? balances : [];
 
   const { data: summary, isLoading: isLoadingSummary } = useGetAlertSummary({
     query: {
@@ -145,7 +144,6 @@ export default function Dashboard() {
   const handleRefresh = () => {
     queryClient.invalidateQueries({ queryKey: getGetGrafanaBalancesQueryKey() });
     queryClient.invalidateQueries({ queryKey: getGetAlertSummaryQueryKey() });
-    queryClient.invalidateQueries({ queryKey: getListGrafanaOrganizationsQueryKey() });
   };
 
   const openOrganizationStudyFromSelector = (metric: string) => {
@@ -315,8 +313,10 @@ export default function Dashboard() {
               <SelectValue placeholder="Lookup Org Study..." />
             </SelectTrigger>
             <SelectContent>
-              {isLoadingOrganizationDirectory ? (
+              {isLoadingBalances ? (
                 <SelectItem value="loading" disabled>Loading index…</SelectItem>
+              ) : isBalanceError ? (
+                <SelectItem value="unavailable" disabled>Live balance data unavailable</SelectItem>
               ) : (
                 organizationList.map((organization) => (
                   <SelectItem key={organization.metric} value={organization.metric} className="font-mono text-xs">
@@ -590,7 +590,25 @@ export default function Dashboard() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {isLoadingBalances ? (
+              {isBalanceError ? (
+                <TableRow>
+                  <TableCell colSpan={9} className="h-52 text-center">
+                    <div className="mx-auto flex max-w-md flex-col items-center justify-center gap-3 text-muted-foreground">
+                      <div className="flex h-12 w-12 items-center justify-center rounded-full border border-rose-500/30 bg-rose-500/10">
+                        <AlertCircle className="h-5 w-5 text-rose-400" />
+                      </div>
+                      <div>
+                        <p className="font-semibold text-foreground">Live balances are temporarily unavailable</p>
+                        <p className="mt-1 text-sm">Grafana did not respond in time. Your settings and alert summary are still available.</p>
+                      </div>
+                      <Button variant="outline" size="sm" onClick={handleRefresh} className="border-primary/30 bg-primary/5 text-primary hover:bg-primary/10">
+                        <RefreshCw className="mr-2 h-3.5 w-3.5" />
+                        Retry live data
+                      </Button>
+                    </div>
+                  </TableCell>
+                </TableRow>
+              ) : isLoadingBalances ? (
                 Array.from({ length: 8 }).map((_, i) => (
                   <TableRow key={i} className="border-border/40">
                     <TableCell><Skeleton className="h-4 w-32 bg-border/40" /></TableCell>
