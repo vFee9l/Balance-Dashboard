@@ -2,3 +2,4 @@
 - [Google Sheets alert routing](sheets-alert-routing.md) — per-client contacts from sheet (Finance ID key), new severity routing rules; DB contacts are fallback
 - [OTP library type fix](otp-type-fix.md) — `type: "totp"` is not a valid property in OTPVerifyOptions / generateURI; omit it (default is TOTP anyway)
 - [otplib v13 functional API](otplib-v13.md) — v13 dropped the `authenticator` object; use named functional exports instead
+- [Grafana dashboard data contract](grafana-dashboard-th4qhrb.md) — dashboard detail data is organization hierarchy plus CalculatedBalance; consumption metrics are separate per-organization panels
