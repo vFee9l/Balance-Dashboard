@@ -333,6 +333,15 @@ export const GetGrafanaOrganizationStudyResponse = zod.object({
   "financeId": zod.string().nullable(),
   "usesOrgBalance": zod.boolean(),
   "remainingBalance": zod.number(),
+  "children": zod.array(zod.object({
+  "organizationId": zod.string(),
+  "metric": zod.string(),
+  "financeId": zod.string().nullable(),
+  "parentOrganizationId": zod.string().nullable(),
+  "organizationLevel": zod.string(),
+  "usesOrgBalance": zod.boolean(),
+  "remainingBalance": zod.number()
+})).describe('Current child-organization balances that contribute to the selected main organization'),
   "dailyHistory": zod.array(zod.object({
   "date": zod.string(),
   "balance": zod.number(),

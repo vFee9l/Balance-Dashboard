@@ -5,6 +5,7 @@
  * Balance Alert System API
  * OpenAPI spec version: 0.1.0
  */
+import type { OrganizationChildBalance } from './organizationChildBalance';
 import type { OrganizationStudyPoint } from './organizationStudyPoint';
 
 export interface OrganizationStudy {
@@ -13,6 +14,8 @@ export interface OrganizationStudy {
   financeId: string | null;
   usesOrgBalance: boolean;
   remainingBalance: number;
+  /** Current child-organization balances that contribute to the selected main organization */
+  children: OrganizationChildBalance[];
   dailyHistory: OrganizationStudyPoint[];
   averageDailyConsumption: number;
   rateWindowDays: number;

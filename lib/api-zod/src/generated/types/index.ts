@@ -24,6 +24,7 @@ export * from './getConsumptionHistoryParams';
 export * from './getGrafanaOrganizationStudyParams';
 export * from './grafanaOrganization';
 export * from './healthStatus';
+export * from './organizationChildBalance';
 export * from './organizationStudy';
 export * from './organizationStudyPoint';
 export * from './otpInput';

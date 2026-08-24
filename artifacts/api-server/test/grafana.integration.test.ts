@@ -42,6 +42,27 @@ const hierarchyRatesIncludingChild = frame(
   ],
 );
 
+const alRajhiChildren = frame(
+  [
+    "organization_id",
+    "metric",
+    "finance_id",
+    "parent_organization_id",
+    "organization_level",
+    "uses_org_balance",
+    "Remaining_Balance",
+  ],
+  [
+    ["alrajhi-child-1", "alrajhi-child-2"],
+    ["AlRajhi-1", "AlRajhi-2"],
+    ["1032", null],
+    ["alrajhi-parent", "alrajhi-parent"],
+    ["sub", "sub"],
+    [1, 0],
+    [900_000, 334_567.89],
+  ],
+);
+
 test("calculated hierarchy summary produces one AlRajhi alert target", () => {
   const monitoringFeed = parseFramesToBalances(
     [calculatedSummary],
@@ -89,6 +110,7 @@ test("organization study uses the calculated summary balance with populated 90-d
 
   const study = buildOrganizationStudy({
     summaryFrames: [calculatedSummary],
+    childFrames: [alRajhiChildren],
     historyFrames: [history],
     metric: "AlRajhi",
     fetchedAt: fetchWindow,
@@ -99,9 +121,29 @@ test("organization study uses the calculated summary balance with populated 90-d
   assert.equal(study.lastUpdated, fetchWindow);
   assert.equal(study.coverageDays, 90);
   assert.equal(study.rateWindowDays, 90);
-  assert.equal(study.rateBasis, "90-day average");
+  assert.equal(study.rateBasis, "90-day average (90 valid daily intervals)");
   assert.equal(study.averageDailyConsumption, 125);
   assert.deepEqual(study.dataQuality, []);
+  assert.deepEqual(study.children, [
+    {
+      organizationId: "alrajhi-child-1",
+      metric: "AlRajhi-1",
+      financeId: "1032",
+      parentOrganizationId: "alrajhi-parent",
+      organizationLevel: "sub",
+      usesOrgBalance: true,
+      remainingBalance: 900_000,
+    },
+    {
+      organizationId: "alrajhi-child-2",
+      metric: "AlRajhi-2",
+      financeId: null,
+      parentOrganizationId: "alrajhi-parent",
+      organizationLevel: "sub",
+      usesOrgBalance: false,
+      remainingBalance: 334_567.89,
+    },
+  ]);
 });
 
 test("organization study reports missing hierarchy history as a data-quality state", () => {
@@ -117,6 +159,7 @@ test("organization study reports missing hierarchy history as a data-quality sta
 
   const study = buildOrganizationStudy({
     summaryFrames: [calculatedSummary],
+    childFrames: [],
     historyFrames: [partialHistory],
     metric: "AlRajhi",
     fetchedAt: fetchWindow,
@@ -129,9 +172,42 @@ test("organization study reports missing hierarchy history as a data-quality sta
   assert.equal(study.averageDailyConsumption, 0);
   assert.equal(study.daysRemaining, -1);
   assert.equal(study.rateBasis, "Insufficient daily history");
+  assert.deepEqual(study.children, []);
   assert.deepEqual(study.dataQuality, [
     "2 partial hierarchy day(s) were excluded from the consumption forecast.",
     "Only 0 days of usable history are available.",
-    "No positive consumption rate can be calculated from the available history.",
+    "No forecast is shown because the full hierarchy has no complete consecutive daily consumption window.",
+  ]);
+});
+
+test("organization study never combines separate history runs for a forecast", () => {
+  const firstRunDays = Array.from({ length: 60 }, (_, day) => new Date(Date.UTC(2026, 5, 1 + day)).toISOString());
+  const latestRunDays = Array.from({ length: 4 }, (_, day) => new Date(Date.UTC(2026, 7, 2 + day)).toISOString());
+  const fragmentedHistory = frame(
+    ["date", "balance", "consumption", "is_complete"],
+    [
+      [...firstRunDays, ...latestRunDays],
+      Array.from({ length: 64 }, (_, day) => 1_245_817.89 - day * 125),
+      [...Array.from({ length: 60 }, () => 125), ...Array.from({ length: 4 }, () => 500)],
+      Array.from({ length: 64 }, () => 1),
+    ],
+  );
+
+  const study = buildOrganizationStudy({
+    summaryFrames: [calculatedSummary],
+    childFrames: [],
+    historyFrames: [fragmentedHistory],
+    metric: "AlRajhi",
+    fetchedAt: fetchWindow,
+  });
+
+  assert.ok(study);
+  assert.equal(study.coverageDays, 4);
+  assert.equal(study.averageDailyConsumption, 0);
+  assert.equal(study.daysRemaining, -1);
+  assert.deepEqual(study.dataQuality, [
+    "60 older or non-consecutive daily interval(s) were excluded from the consumption forecast.",
+    "Only 4 days of usable history are available.",
+    "No forecast is shown because the full hierarchy has no complete consecutive daily consumption window.",
   ]);
 });

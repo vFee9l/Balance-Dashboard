@@ -548,6 +548,45 @@ function studyHistorySql(metric: string): string {
   `;
 }
 
+function organizationChildrenSql(metric: string): string {
+  const escapedMetric = metric.replace(/'/g, "''");
+  return `
+    DECLARE @data TABLE (
+      OrganizationId NVARCHAR(100),
+      OrganisationName NVARCHAR(200),
+      FinanceAccountId INT,
+      ParentOrganisationId NVARCHAR(100),
+      OrgLevel NVARCHAR(10),
+      RollsUpToMainOrganizationId NVARCHAR(100),
+      UsesOrgBalance INT,
+      CalculatedBalance DECIMAL(18,3)
+    )
+    INSERT INTO @data
+    EXEC [RiCH-Web].[dbo].[usp_GetClientBalancesDashboard]
+      @RootOrganizationId = '${grafanaRootOrganizationId}',
+      @Mode = 'DETAIL'
+
+    DECLARE @MainOrgId NVARCHAR(100)
+    SELECT TOP 1 @MainOrgId = RollsUpToMainOrganizationId
+    FROM @data
+    WHERE OrganisationName = '${escapedMetric}'
+      AND OrgLevel = 'main'
+
+    SELECT
+      child.OrganizationId AS organization_id,
+      child.OrganisationName AS metric,
+      child.FinanceAccountId AS finance_id,
+      child.ParentOrganisationId AS parent_organization_id,
+      child.OrgLevel AS organization_level,
+      child.UsesOrgBalance AS uses_org_balance,
+      child.CalculatedBalance AS Remaining_Balance
+    FROM @data child
+    WHERE child.RollsUpToMainOrganizationId = @MainOrgId
+      AND child.OrgLevel <> 'main'
+    ORDER BY child.OrgLevel, child.OrganisationName
+  `;
+}
+
 router.get("/grafana/organizations", async (req, res): Promise<void> => {
   try {
     const data = await queryGrafana([{ refId: "S", rawSql: dashboardSummarySql }]);
@@ -570,11 +609,13 @@ router.get("/grafana/organization-study", async (req, res): Promise<void> => {
     const data = await queryGrafana([
       { refId: "S", rawSql: dashboardSummarySql },
       { refId: "H", rawSql: studyHistorySql(params.data.metric) },
+      { refId: "C", rawSql: organizationChildrenSql(params.data.metric) },
     ]);
     const fetchedAt = new Date().toISOString();
     const [settings] = await db.select().from(settingsTable).limit(1);
     const study = buildOrganizationStudy({
       summaryFrames: data.results.S?.frames ?? [],
+      childFrames: data.results.C?.frames ?? [],
       historyFrames: data.results.H?.frames ?? [],
       metric: params.data.metric,
       fetchedAt,

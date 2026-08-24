@@ -254,12 +254,26 @@ export interface OrganizationStudyPoint {
   consumption: number;
 }
 
+export interface OrganizationChildBalance {
+  organizationId: string;
+  metric: string;
+  /** @nullable */
+  financeId: string | null;
+  /** @nullable */
+  parentOrganizationId: string | null;
+  organizationLevel: string;
+  usesOrgBalance: boolean;
+  remainingBalance: number;
+}
+
 export interface OrganizationStudy {
   metric: string;
   /** @nullable */
   financeId: string | null;
   usesOrgBalance: boolean;
   remainingBalance: number;
+  /** Current child-organization balances that contribute to the selected main organization */
+  children: OrganizationChildBalance[];
   dailyHistory: OrganizationStudyPoint[];
   averageDailyConsumption: number;
   rateWindowDays: number;

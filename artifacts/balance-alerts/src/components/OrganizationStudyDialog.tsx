@@ -21,7 +21,7 @@ import {
   ChartTooltip,
   ChartTooltipContent,
 } from "@/components/ui/chart";
-import { AlertCircle, CalendarDays, Gauge, Landmark, TrendingDown, TrendingUp } from "lucide-react";
+import { AlertCircle, CalendarDays, Gauge, Landmark, Network, TrendingDown, TrendingUp } from "lucide-react";
 import { Bar, BarChart, CartesianGrid, XAxis, YAxis } from "recharts";
 
 interface OrganizationStudyDialogProps {
@@ -111,6 +111,7 @@ export default function OrganizationStudyDialog({
     label: formatDate(point.date),
   })) ?? [];
   const historyRows = [...(study?.dailyHistory ?? [])].reverse();
+  const childRows = study?.children ?? [];
 
   return (
     <Dialog open={!!metric} onOpenChange={(open) => { if (!open) onClose(); }}>
@@ -193,6 +194,9 @@ export default function OrganizationStudyDialog({
                   <p className={`mt-2 font-mono text-3xl font-semibold ${study.remainingBalance < 0 ? "text-destructive" : "text-primary"}`}>
                     {formatExactValue(study.remainingBalance)}
                   </p>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    Rolled-up parent total{childRows.length > 0 ? ` · includes ${childRows.length} child balance${childRows.length === 1 ? "" : "s"}` : ""}
+                  </p>
                 </CardContent>
               </Card>
             </div>
@@ -209,9 +213,11 @@ export default function OrganizationStudyDialog({
                 <CardContent className="p-4">
                   <p className="text-xs text-muted-foreground">Estimated days remaining</p>
                   <p className="mt-2 font-mono text-xl font-semibold">
-                    {study.daysRemaining < 0 ? "—" : `${study.daysRemaining} days`}
+                    {study.daysRemaining < 0 ? "Not available" : `${study.daysRemaining} days`}
                   </p>
-                  <p className="mt-1 text-xs text-muted-foreground">Using the displayed study rate</p>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    {study.daysRemaining < 0 ? "A complete daily rate is required" : "Using the displayed study rate"}
+                  </p>
                 </CardContent>
               </Card>
               <Card className="border-border/60 bg-muted/20">
@@ -235,6 +241,58 @@ export default function OrganizationStudyDialog({
                 </ul>
               </div>
             )}
+
+            <Card className="border-primary/25 bg-primary/[0.03]">
+              <CardContent className="p-0">
+                <div className="border-b border-border/60 px-4 py-3">
+                  <div className="flex items-center gap-2">
+                    <Network className="h-4 w-4 text-primary" />
+                    <div>
+                      <p className="text-sm font-semibold">Child organization balances</p>
+                      <p className="text-xs text-muted-foreground">
+                        Live child balances from the same Grafana refresh as the rolled-up parent total above.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+                <div className="max-h-72 overflow-auto">
+                  <Table>
+                    <TableHeader className="sticky top-0 bg-card">
+                      <TableRow>
+                        <TableHead>Child organization</TableHead>
+                        <TableHead>Finance ID</TableHead>
+                        <TableHead>Level</TableHead>
+                        <TableHead>Balance source</TableHead>
+                        <TableHead className="text-right">Remaining balance</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {childRows.length === 0 ? (
+                        <TableRow>
+                          <TableCell colSpan={5} className="h-20 text-center text-muted-foreground">
+                            No child organizations are reported for this parent. The balance above is the parent organization’s own Grafana balance.
+                          </TableCell>
+                        </TableRow>
+                      ) : childRows.map((child) => (
+                        <TableRow key={child.organizationId}>
+                          <TableCell className="font-medium">{child.metric}</TableCell>
+                          <TableCell className="font-mono text-xs text-muted-foreground">
+                            {child.financeId && Number(child.financeId) > 0 ? child.financeId : "—"}
+                          </TableCell>
+                          <TableCell className="capitalize text-xs text-muted-foreground">{child.organizationLevel}</TableCell>
+                          <TableCell className="text-xs text-muted-foreground">
+                            {child.usesOrgBalance ? "Organization balance" : "User balance"}
+                          </TableCell>
+                          <TableCell className={`text-right font-mono text-xs ${child.remainingBalance < 0 ? "text-destructive" : ""}`}>
+                            {formatExactValue(child.remainingBalance)}
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
+              </CardContent>
+            </Card>
 
             <Card className="border-border/60 bg-muted/10">
               <CardContent className="p-4">

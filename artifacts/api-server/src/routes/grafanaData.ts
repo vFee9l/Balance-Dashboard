@@ -31,11 +31,22 @@ export interface OrganizationStudyPoint {
   consumption: number;
 }
 
+export interface OrganizationChildBalance {
+  organizationId: string;
+  metric: string;
+  financeId: string | null;
+  parentOrganizationId: string | null;
+  organizationLevel: string;
+  usesOrgBalance: boolean;
+  remainingBalance: number;
+}
+
 export interface OrganizationStudyData {
   metric: string;
   financeId: string | null;
   usesOrgBalance: boolean;
   remainingBalance: number;
+  children: OrganizationChildBalance[];
   dailyHistory: OrganizationStudyPoint[];
   averageDailyConsumption: number;
   rateWindowDays: number;
@@ -128,6 +139,29 @@ function extractStringFrameMap(frames: GrafanaFrame[], metricField: string, valu
   return map;
 }
 
+export function parseOrganizationChildren(frames: GrafanaFrame[]): OrganizationChildBalance[] {
+  return frameRows(frames)
+    .map((row): OrganizationChildBalance | null => {
+      const organizationId = stringValue(row.organization_id);
+      const metric = stringValue(row.metric);
+      if (!organizationId || !metric) return null;
+      return {
+        organizationId,
+        metric,
+        financeId: stringValue(row.finance_id),
+        parentOrganizationId: stringValue(row.parent_organization_id),
+        organizationLevel: stringValue(row.organization_level) ?? "child",
+        usesOrgBalance: numberValue(row.uses_org_balance) === 1,
+        remainingBalance: numberValue(row.Remaining_Balance),
+      };
+    })
+    .filter((child): child is OrganizationChildBalance => child !== null)
+    .sort((a, b) => {
+      const levelOrder = a.organizationLevel.localeCompare(b.organizationLevel);
+      return levelOrder || a.metric.localeCompare(b.metric);
+    });
+}
+
 /**
  * Convert the two Grafana monitoring panels into alert targets.
  *
@@ -206,6 +240,31 @@ function toIsoDate(value: unknown): string | null {
   return Number.isNaN(date.getTime()) ? null : date.toISOString();
 }
 
+function isNextCalendarDay(previousDate: string, currentDate: string): boolean {
+  const previous = new Date(previousDate);
+  const current = new Date(currentDate);
+  return current.getTime() - previous.getTime() === 86_400_000;
+}
+
+function mostRecentContiguousRun(history: OrganizationStudyPoint[]): OrganizationStudyPoint[] {
+  if (history.length === 0) return [];
+
+  let currentRun = [history[0]];
+  let mostRecentRun = currentRun;
+
+  for (let index = 1; index < history.length; index++) {
+    const point = history[index];
+    if (isNextCalendarDay(history[index - 1].date, point.date)) {
+      currentRun.push(point);
+    } else {
+      currentRun = [point];
+      mostRecentRun = currentRun;
+    }
+  }
+
+  return mostRecentRun;
+}
+
 function chooseStudyRate(history: OrganizationStudyPoint[]): {
   averageDailyConsumption: number;
   rateWindowDays: number;
@@ -218,10 +277,17 @@ function chooseStudyRate(history: OrganizationStudyPoint[]): {
   ];
 
   for (const candidate of candidates) {
-    const points = history.slice(-candidate.window);
-    if (points.length < candidate.minimumCoverage) continue;
-    const averageDailyConsumption = points.reduce((total, point) => total + point.consumption, 0) / points.length;
-    return { averageDailyConsumption, rateWindowDays: points.length, rateBasis: candidate.label };
+    // Each history record is already a verified one-day interval: the SQL
+    // removes the first snapshot and any non-consecutive pair. Therefore the
+    // interval count is the correct denominator, not the raw date span.
+    const intervals = history.slice(-candidate.window);
+    if (intervals.length < candidate.minimumCoverage) continue;
+    const averageDailyConsumption = intervals.reduce((total, point) => total + point.consumption, 0) / intervals.length;
+    return {
+      averageDailyConsumption,
+      rateWindowDays: intervals.length,
+      rateBasis: `${candidate.label} (${intervals.length} valid daily interval${intervals.length === 1 ? "" : "s"})`,
+    };
   }
   return { averageDailyConsumption: 0, rateWindowDays: 0, rateBasis: "Insufficient daily history" };
 }
@@ -242,6 +308,7 @@ function computeSeverity(
 
 export function buildOrganizationStudy(input: {
   summaryFrames: GrafanaFrame[];
+  childFrames: GrafanaFrame[];
   historyFrames: GrafanaFrame[];
   metric: string;
   fetchedAt: string;
@@ -272,9 +339,15 @@ export function buildOrganizationStudy(input: {
     .sort((a, b) => a.point.date.localeCompare(b.point.date));
 
   const incompleteHierarchyDays = rawHistory.filter((entry) => !entry.hasCompleteHierarchy).length;
-  const history = rawHistory
+  const completeHistory = rawHistory
     .filter((entry) => entry.hasCompleteHierarchy)
     .map((entry) => entry.point);
+  // The SQL filters gap pairs before it emits a consumption row. Keep a
+  // boundary check here too: only the most recent contiguous daily run may
+  // contribute to a rate, so a future query change cannot combine separate
+  // windows into a one-day estimate.
+  const history = mostRecentContiguousRun(completeHistory);
+  const fragmentedHistoryIntervals = completeHistory.length - history.length;
   const rate = chooseStudyRate(history);
   const thresholds = input.thresholds ?? {};
   const rawDays = rate.averageDailyConsumption > 0
@@ -300,9 +373,16 @@ export function buildOrganizationStudy(input: {
   if (incompleteHierarchyDays > 0) {
     dataQuality.push(`${incompleteHierarchyDays} partial hierarchy day(s) were excluded from the consumption forecast.`);
   }
+  if (fragmentedHistoryIntervals > 0) {
+    dataQuality.push(`${fragmentedHistoryIntervals} older or non-consecutive daily interval(s) were excluded from the consumption forecast.`);
+  }
   if (history.length < 60) dataQuality.push(`Only ${history.length} days of usable history are available.`);
   if (rate.averageDailyConsumption <= 0) {
-    dataQuality.push("No positive consumption rate can be calculated from the available history.");
+    dataQuality.push(
+      incompleteHierarchyDays > 0 || fragmentedHistoryIntervals > 0
+        ? "No forecast is shown because the full hierarchy has no complete consecutive daily consumption window."
+        : "No positive consumption rate can be calculated from the available history.",
+    );
   }
 
   return {
@@ -310,6 +390,7 @@ export function buildOrganizationStudy(input: {
     financeId: organization.financeId,
     usesOrgBalance: organization.usesOrgBalance,
     remainingBalance: organization.remainingBalance,
+    children: parseOrganizationChildren(input.childFrames),
     dailyHistory: history,
     averageDailyConsumption: rate.averageDailyConsumption,
     rateWindowDays: rate.rateWindowDays,

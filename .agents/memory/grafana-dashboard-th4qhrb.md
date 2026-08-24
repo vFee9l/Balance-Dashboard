@@ -25,4 +25,4 @@ The linked Grafana dashboard returns organization detail rows with hierarchy, Fi
 
 **Why:** A gap between retained snapshots turns a multi-day balance drop into an overstated single-day rate.
 
-**How to apply:** Filter incomplete hierarchy dates before calculating the lag, then exclude any remaining lag pair whose dates are not adjacent from all rates, daily deltas, and forecast logic.
+**How to apply:** Filter incomplete hierarchy dates before calculating the lag, then exclude any remaining lag pair whose dates are not adjacent from all rates, daily deltas, and forecast logic. If retained history is fragmented, calculate a forecast only from the most recent contiguous run; never combine separate runs to meet a coverage threshold.

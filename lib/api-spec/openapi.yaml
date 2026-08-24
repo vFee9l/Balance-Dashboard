@@ -783,9 +783,28 @@ components:
         consumption:
           type: number
 
+    OrganizationChildBalance:
+      type: object
+      required: [organizationId, metric, financeId, parentOrganizationId, organizationLevel, usesOrgBalance, remainingBalance]
+      properties:
+        organizationId:
+          type: string
+        metric:
+          type: string
+        financeId:
+          type: ["string", "null"]
+        parentOrganizationId:
+          type: ["string", "null"]
+        organizationLevel:
+          type: string
+        usesOrgBalance:
+          type: boolean
+        remainingBalance:
+          type: number
+
     OrganizationStudy:
       type: object
-      required: [metric, financeId, usesOrgBalance, remainingBalance, dailyHistory, averageDailyConsumption, rateWindowDays, coverageDays, daysRemaining, severity, rateBasis, dataQuality, lastUpdated]
+      required: [metric, financeId, usesOrgBalance, remainingBalance, children, dailyHistory, averageDailyConsumption, rateWindowDays, coverageDays, daysRemaining, severity, rateBasis, dataQuality, lastUpdated]
       properties:
         metric:
           type: string
@@ -795,6 +814,11 @@ components:
           type: boolean
         remainingBalance:
           type: number
+        children:
+          type: array
+          description: Current child-organization balances that contribute to the selected main organization
+          items:
+            $ref: "#/components/schemas/OrganizationChildBalance"
         dailyHistory:
           type: array
           items:
