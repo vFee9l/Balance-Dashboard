@@ -286,7 +286,7 @@ export default function Dashboard() {
       <div className="flex flex-col xl:flex-row gap-6 justify-between items-start xl:items-center bg-card/40 border border-border/50 rounded-lg p-5 backdrop-blur-md shadow-sm">
         <div>
           <h1 className="text-2xl font-bold tracking-tight text-foreground flex items-center gap-3">
-            TELEMETRY DASHBOARD
+            BALANCE DASHBOARD
             {isFetching && (
               <span className="flex items-center gap-1.5 text-[10px] font-mono tracking-widest text-primary bg-primary/10 px-2 py-1 rounded border border-primary/20">
                 <span className="h-1.5 w-1.5 rounded-full bg-primary animate-pulse" />
@@ -295,7 +295,7 @@ export default function Dashboard() {
             )}
           </h1>
           <p className="text-sm text-muted-foreground mt-1 font-medium tracking-wide">
-            Live client SMS credit monitoring and burn-rate forecast.
+            Live organization balances, daily consumption, and forecasted coverage.
           </p>
           {dataUpdatedAt > 0 && (
             <p className="text-xs font-mono text-muted-foreground/60 mt-2 flex items-center gap-1.5">
@@ -530,25 +530,30 @@ export default function Dashboard() {
         </Card>
       )}
 
-      {/* Grid Data */}
+      {/* Balance ledger */}
       <Card className="bg-card/40 backdrop-blur-md border-border/60 overflow-hidden shadow-sm">
         <div className="p-4 border-b border-border/60 flex flex-wrap gap-4 items-center justify-between bg-card/60">
-          <div className="flex items-center gap-2">
+          <div>
+            <div className="flex items-center gap-2">
             <div className="h-4 w-1 bg-primary rounded-full shadow-[0_0_8px_rgba(var(--primary),0.5)]" />
-            <h2 className="text-sm font-bold tracking-widest text-foreground uppercase">Data Grid</h2>
+              <h2 className="text-sm font-bold tracking-widest text-foreground uppercase">Balance Ledger</h2>
             <span className="text-[10px] font-mono text-muted-foreground bg-muted px-2 py-0.5 rounded ml-2">
               {filteredBalances.length} / {balances?.length ?? 0}
             </span>
+            </div>
+            <p className="mt-1 pl-3 text-xs text-muted-foreground">
+              Organization balances and daily consumption forecasts. Select a row to review its history.
+            </p>
           </div>
 
           <div className="flex flex-wrap gap-3">
             <div className="relative">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground/70" />
               <Input
-                placeholder="Search ID or Metric..."
+                placeholder="Search organization or Finance ID..."
                 value={orgFilter}
                 onChange={(e) => setOrgFilter(e.target.value)}
-                className="pl-9 h-9 w-[220px] bg-background/50 border-border/60 font-mono text-xs focus-visible:ring-primary/30"
+                className="pl-9 h-9 w-[260px] max-w-full bg-background/50 border-border/60 font-mono text-xs focus-visible:ring-primary/30"
                 data-testid="input-search-org"
               />
             </div>
@@ -573,14 +578,14 @@ export default function Dashboard() {
           <Table>
             <TableHeader>
               <TableRow className="border-border/50 hover:bg-transparent">
-                <SortableHead col="metric" label="Metric ID" sortCol={sortCol} sortDir={sortDir} onSort={handleSort} align="left" />
-                <TableHead className="text-muted-foreground/70 text-[11px] font-semibold uppercase tracking-wider w-20 bg-card/40">FIN ID</TableHead>
-                <SortableHead col="remainingBalance" label="Balance" sortCol={sortCol} sortDir={sortDir} onSort={handleSort} align="right" />
-                <SortableHead col="dailyConsumption" label="Avg Rate/D" sortCol={sortCol} sortDir={sortDir} onSort={handleSort} align="right" title="Average daily consumption based on the previous 30 days" />
-                <SortableHead col="historyCoverageDays" label="History" sortCol={sortCol} sortDir={sortDir} onSort={handleSort} align="right" title="Valid complete daily intervals in the latest contiguous history run" />
-                <SortableHead col="dailyBalanceChange" label="Day Δ" sortCol={sortCol} sortDir={sortDir} onSort={handleSort} align="right" title="Yesterday's balance movement versus the prior day" />
-                <SortableHead col="daysRemaining" label="Est. TTL" sortCol={sortCol} sortDir={sortDir} onSort={handleSort} align="right" title="Estimated days remaining based on average daily consumption rate" />
-                <SortableHead col="severity" label="Status Node" sortCol={sortCol} sortDir={sortDir} onSort={handleSort} align="left" />
+                <SortableHead col="metric" label="Organization" sortCol={sortCol} sortDir={sortDir} onSort={handleSort} align="left" title="Organization name" />
+                <TableHead className="text-muted-foreground/70 text-[11px] font-semibold uppercase tracking-wider min-w-[100px] bg-card/40">Finance ID</TableHead>
+                <SortableHead col="remainingBalance" label="Available balance" sortCol={sortCol} sortDir={sortDir} onSort={handleSort} align="right" />
+                <SortableHead col="dailyConsumption" label="Avg. consumption" sortCol={sortCol} sortDir={sortDir} onSort={handleSort} align="right" title="Average daily consumption based on the current valid history window" />
+                <SortableHead col="historyCoverageDays" label="History" sortCol={sortCol} sortDir={sortDir} onSort={handleSort} align="right" title="Complete, consecutive daily intervals used by the forecast" />
+                <SortableHead col="dailyBalanceChange" label="Daily change" sortCol={sortCol} sortDir={sortDir} onSort={handleSort} align="right" title="Most recent balance movement versus the prior day" />
+                <SortableHead col="daysRemaining" label="Days remaining" sortCol={sortCol} sortDir={sortDir} onSort={handleSort} align="right" title="Estimated days remaining based on average daily consumption" />
+                <SortableHead col="severity" label="Status" sortCol={sortCol} sortDir={sortDir} onSort={handleSort} align="left" />
                 <SortableHead col="lastUpdated" label="Timestamp" sortCol={sortCol} sortDir={sortDir} onSort={handleSort} align="right" />
               </TableRow>
             </TableHeader>
@@ -625,16 +630,14 @@ export default function Dashboard() {
                       title="Click to view detailed telemetry"
                       data-testid={`row-balance-${idx}`}
                     >
-                      {/* Hover Indicator */}
-                      <td className="absolute left-0 top-0 bottom-0 w-0.5 bg-transparent group-hover:bg-primary transition-colors" />
-
-                      <TableCell className="font-mono text-xs font-semibold">
+                      <TableCell className="relative min-w-[210px] font-mono text-xs font-semibold">
+                        <span aria-hidden="true" className="absolute inset-y-0 left-0 w-0.5 bg-transparent transition-colors group-hover:bg-primary" />
                         <span className="flex items-center gap-2">
-                          <span className="truncate max-w-[200px] text-foreground/90">{balance.metric}</span>
+                          <span className="truncate max-w-[220px] text-foreground/90">{balance.metric}</span>
                           <BarChart2 className="w-3.5 h-3.5 text-primary opacity-0 group-hover:opacity-100 transition-opacity shrink-0 shadow-[0_0_8px_rgba(var(--primary),0.5)] rounded-sm" />
                         </span>
                       </TableCell>
-                      <TableCell className="text-[10px] text-muted-foreground/60 font-mono w-20">
+                      <TableCell className="min-w-[100px] text-[10px] text-muted-foreground/60 font-mono">
                         {balance.financeId ?? <span className="opacity-30">---</span>}
                       </TableCell>
                       <TableCell className="text-right font-mono text-xs">

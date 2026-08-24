@@ -115,13 +115,13 @@ export default function OrganizationStudyDialog({
 
   return (
     <Dialog open={!!metric} onOpenChange={(open) => { if (!open) onClose(); }}>
-      <DialogContent className="max-h-[92vh] max-w-6xl overflow-y-auto rounded-lg border-border bg-background p-0 shadow-2xl scanlines [&>button]:z-20">
+      <DialogContent className="max-h-[92vh] w-[calc(100vw-2rem)] max-w-[90rem] overflow-y-auto rounded-lg border-border bg-background p-0 shadow-2xl scanlines [&>button]:z-20">
         {/* Header Ribbon */}
         <div className="sticky top-0 z-10 bg-background/95 backdrop-blur border-b border-border p-6 flex flex-col gap-4">
           <div className="flex flex-wrap items-center justify-between gap-4">
             <DialogTitle className="flex items-center gap-3">
               <div className="h-6 w-1 bg-primary rounded-full shadow-[0_0_10px_rgba(var(--primary),0.6)]" />
-              <span className="font-mono text-xl tracking-tight text-foreground">TELEMETRY DETAIL</span>
+              <span className="font-mono text-xl tracking-tight text-foreground">BALANCE DETAIL</span>
             </DialogTitle>
             <DialogDescription className="sr-only">
               Review Grafana-aligned balance, consumption, forecast, and daily history for the selected organization.
@@ -181,7 +181,7 @@ export default function OrganizationStudyDialog({
                 <Card className="border-border/50 bg-card/40">
                   <CardContent className="p-5">
                     <p className="text-[10px] font-bold tracking-widest text-muted-foreground uppercase flex items-center gap-2 mb-3">
-                      <Landmark className="h-3.5 w-3.5 text-primary/70" /> Identity Hash
+                      <Landmark className="h-3.5 w-3.5 text-primary/70" /> Finance Account ID
                     </p>
                     <p className="font-mono text-2xl text-foreground">
                       {study.financeId && Number(study.financeId) > 0 ? study.financeId : <span className="opacity-30">NULL</span>}
@@ -191,7 +191,7 @@ export default function OrganizationStudyDialog({
                 <Card className="border-border/50 bg-card/40">
                   <CardContent className="p-5">
                     <p className="text-[10px] font-bold tracking-widest text-muted-foreground uppercase flex items-center gap-2 mb-3">
-                      <Gauge className="h-3.5 w-3.5 text-primary/70" /> Inherits Pool
+                      <Gauge className="h-3.5 w-3.5 text-primary/70" /> Shared Balance Pool
                     </p>
                     <p className={`font-mono text-2xl font-bold ${study.usesOrgBalance ? "text-emerald-400" : "text-muted-foreground/50"}`}>
                       {study.usesOrgBalance ? "TRUE" : "FALSE"}
@@ -204,13 +204,13 @@ export default function OrganizationStudyDialog({
                   </div>
                   <CardContent className="p-5 relative z-10">
                     <p className="text-[11px] font-bold tracking-widest text-primary/80 uppercase flex items-center gap-2 mb-2">
-                      <TrendingDown className="h-4 w-4" /> Available Capacity
+                      <TrendingDown className="h-4 w-4" /> Available Balance
                     </p>
                     <p className={`font-mono text-4xl font-bold tracking-tight ${study.remainingBalance < 0 ? "text-rose-400" : "text-foreground"}`}>
                       {formatExactValue(study.remainingBalance)}
                     </p>
                     <p className="mt-2 text-[10px] font-mono text-primary/60 tracking-wider">
-                      AGGREGATE PARENT NODE {childRows.length > 0 ? `[+${childRows.length} CHILD NODES]` : ""}
+                      ORGANIZATION TOTAL {childRows.length > 0 ? `• ${childRows.length} LINKED ORGANIZATIONS` : ""}
                     </p>
                   </CardContent>
                 </Card>
@@ -220,7 +220,7 @@ export default function OrganizationStudyDialog({
               <div className="grid gap-4 md:grid-cols-3">
                 <Card className="border-border/50 bg-card/30">
                   <CardContent className="p-5">
-                    <p className="text-[10px] font-bold tracking-widest text-muted-foreground uppercase mb-3">Mean Burn Rate</p>
+                    <p className="text-[10px] font-bold tracking-widest text-muted-foreground uppercase mb-3">Average Daily Consumption</p>
                     <p className="font-mono text-2xl text-foreground flex items-baseline gap-1">
                       {formatValue(study.averageDailyConsumption)}<span className="text-sm text-muted-foreground/60">/d</span>
                     </p>
@@ -229,7 +229,7 @@ export default function OrganizationStudyDialog({
                 </Card>
                 <Card className="border-border/50 bg-card/30">
                   <CardContent className="p-5">
-                    <p className="text-[10px] font-bold tracking-widest text-muted-foreground uppercase mb-3">Projected TTL</p>
+                    <p className="text-[10px] font-bold tracking-widest text-muted-foreground uppercase mb-3">Estimated Days Remaining</p>
                     <p className="font-mono text-2xl text-foreground">
                       {study.daysRemaining < 0 ? <span className="text-muted-foreground/40">CALCULATING...</span> : `${study.daysRemaining} DAYS`}
                     </p>
@@ -255,7 +255,7 @@ export default function OrganizationStudyDialog({
                 <div className="rounded border border-amber-500/20 bg-amber-500/5 p-4 flex gap-3 items-start shadow-[inset_0_0_15px_rgba(245,158,11,0.05)]">
                   <AlertCircle className="w-5 h-5 text-amber-500 shrink-0 mt-0.5" />
                   <div>
-                    <p className="text-[10px] font-bold uppercase tracking-widest text-amber-500 mb-2">Diagnostic Flags</p>
+                    <p className="text-[10px] font-bold uppercase tracking-widest text-amber-500 mb-2">Data-quality notes</p>
                     <ul className="space-y-1.5 text-xs font-mono text-amber-500/80">
                       {study.dataQuality.map((note) => <li key={note}>&gt; {note}</li>)}
                     </ul>
@@ -263,16 +263,16 @@ export default function OrganizationStudyDialog({
                 </div>
               )}
 
-              <div className="grid lg:grid-cols-2 gap-6 items-start">
-                {/* Child Nodes Table */}
+              <div className="grid gap-6 xl:grid-cols-[minmax(0,0.95fr)_minmax(0,1.05fr)] items-start">
+                {/* Linked organizations */}
                 <Card className="border-border/50 bg-card/40 flex flex-col h-full">
                   <div className="p-4 border-b border-border/50 bg-card/60 flex items-center gap-3">
                     <div className="h-8 w-8 rounded bg-primary/10 flex items-center justify-center border border-primary/20">
                       <Network className="h-4 w-4 text-primary" />
                     </div>
                     <div>
-                      <p className="text-xs font-bold tracking-widest text-foreground uppercase">Linked Child Nodes</p>
-                      <p className="text-[10px] font-mono text-muted-foreground/60 mt-0.5">Aggregated dependencies</p>
+                      <p className="text-xs font-bold tracking-widest text-foreground uppercase">Linked Organizations</p>
+                      <p className="text-[10px] font-mono text-muted-foreground/60 mt-0.5">Balance allocation within this organization</p>
                     </div>
                   </div>
                   <div className="flex-1 overflow-auto max-h-[400px]">
@@ -312,21 +312,21 @@ export default function OrganizationStudyDialog({
                   </div>
                 </Card>
 
-                <div className="flex flex-col gap-6">
-                  {/* Chart */}
+                <div className="flex flex-col">
+                  {/* Consumption chart */}
                   <Card className="border-border/50 bg-card/40">
                     <div className="p-4 border-b border-border/50 bg-card/60 flex items-center gap-3">
                       <div className="h-8 w-8 rounded bg-primary/10 flex items-center justify-center border border-primary/20">
                         <TrendingUp className="h-4 w-4 text-primary" />
                       </div>
                       <div>
-                        <p className="text-xs font-bold tracking-widest text-foreground uppercase">Burn Velocity</p>
-                        <p className="text-[10px] font-mono text-muted-foreground/60 mt-0.5">Daily volume trace</p>
+                        <p className="text-xs font-bold tracking-widest text-foreground uppercase">Daily Consumption</p>
+                        <p className="text-[10px] font-mono text-muted-foreground/60 mt-0.5">Verified daily balance usage</p>
                       </div>
                     </div>
                     <CardContent className="p-4">
                       {chartData.length > 0 ? (
-                        <ChartContainer config={chartConfig} className="h-[200px] w-full">
+                        <ChartContainer config={chartConfig} className="h-[280px] w-full">
                           <BarChart data={chartData} margin={{ top: 8, right: 0, left: -20, bottom: 0 }}>
                             <CartesianGrid vertical={false} strokeDasharray="2 4" stroke="hsl(var(--border))" strokeOpacity={0.6} />
                             <XAxis dataKey="label" tickLine={false} axisLine={false} tick={{ fontSize: 10, fill: "hsl(var(--muted-foreground))" }} minTickGap={20} />
@@ -342,59 +342,78 @@ export default function OrganizationStudyDialog({
                           </BarChart>
                         </ChartContainer>
                       ) : (
-                        <div className="flex h-[200px] items-center justify-center text-xs font-mono text-muted-foreground/50 border border-dashed border-border/50 rounded">
+                        <div className="flex h-[280px] items-center justify-center text-xs font-mono text-muted-foreground/50 border border-dashed border-border/50 rounded">
                           NO TRACE DATA AVAILABLE
                         </div>
                       )}
                     </CardContent>
                   </Card>
 
-                  {/* History Table */}
-                  <Card className="border-border/50 bg-card/40 flex-1 flex flex-col min-h-[220px]">
-                    <div className="p-3 border-b border-border/50 bg-card/60 flex items-center justify-between">
-                      <p className="text-[10px] font-bold tracking-widest text-foreground uppercase">Ledger</p>
-                    </div>
-                    <div className="flex-1 overflow-auto max-h-[300px]">
-                      <Table>
-                        <TableHeader className="sticky top-0 bg-card/95 backdrop-blur z-10 shadow-sm border-b border-border/50">
-                          <TableRow className="hover:bg-transparent border-none">
-                            <TableHead className="text-[10px] font-bold uppercase tracking-widest w-24">Date</TableHead>
-                            <TableHead className="text-[10px] font-bold uppercase tracking-widest text-right">Bal/Vol</TableHead>
-                            <TableHead className="text-[10px] font-bold uppercase tracking-widest text-right">Cov</TableHead>
-                          </TableRow>
-                        </TableHeader>
-                        <TableBody>
-                          {historyRows.length === 0 ? (
-                            <TableRow>
-                              <TableCell colSpan={3} className="h-20 text-center">
-                                <span className="font-mono text-xs text-muted-foreground/50">NO LEDGER ENTRIES</span>
-                              </TableCell>
-                            </TableRow>
-                          ) : historyRows.map((point) => (
-                            <TableRow key={point.date} className="border-border/30 hover:bg-white/[0.02]">
-                              <TableCell className="font-mono text-xs text-muted-foreground">{formatDate(point.date)}</TableCell>
-                              <TableCell className="text-right">
-                                <p className="font-mono text-xs text-foreground/90">{formatExactValue(point.balance)}</p>
-                                <p className="font-mono text-[10px] text-muted-foreground/50 mt-0.5">
-                                  VOL: {formatExactValue(point.consumption)}
-                                  {point.balanceChange !== null && (
-                                    <span className={`ml-1 ${point.balanceChange > 0 ? "text-emerald-400" : point.balanceChange < 0 ? "text-rose-400" : ""}`}>
-                                      ({point.balanceChange > 0 ? "+" : ""}{formatExactValue(point.balanceChange)})
-                                    </span>
-                                  )}
-                                </p>
-                              </TableCell>
-                              <TableCell className={`text-right font-mono text-[10px] ${point.isComplete ? "text-emerald-400/80" : "text-amber-400/80"}`}>
-                                {point.organizationCount}/{point.expectedOrganizationCount}
-                              </TableCell>
-                            </TableRow>
-                          ))}
-                        </TableBody>
-                      </Table>
-                    </div>
-                  </Card>
                 </div>
               </div>
+
+              {/* Full-width balance history */}
+              <Card className="overflow-hidden border-border/50 bg-card/40">
+                <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border/50 bg-card/60 px-5 py-4">
+                  <div>
+                    <p className="text-sm font-bold tracking-widest text-foreground uppercase">Balance History Ledger</p>
+                    <p className="mt-1 text-xs text-muted-foreground">Daily balance snapshots and verified consumption intervals for this organization.</p>
+                  </div>
+                  <span className="rounded border border-primary/20 bg-primary/10 px-2.5 py-1 font-mono text-[10px] font-bold tracking-wider text-primary">
+                    {historyRows.length} ENTRIES
+                  </span>
+                </div>
+                <div className="max-h-[500px] overflow-auto">
+                  <Table>
+                    <TableHeader className="sticky top-0 z-10 border-b border-border/50 bg-card/95 backdrop-blur">
+                      <TableRow className="border-none hover:bg-transparent">
+                        <TableHead className="min-w-[130px] text-[10px] font-bold uppercase tracking-widest">Date</TableHead>
+                        <TableHead className="min-w-[190px] text-right text-[10px] font-bold uppercase tracking-widest">Available balance</TableHead>
+                        <TableHead className="min-w-[180px] text-right text-[10px] font-bold uppercase tracking-widest">Daily consumption</TableHead>
+                        <TableHead className="min-w-[160px] text-right text-[10px] font-bold uppercase tracking-widest">Balance change</TableHead>
+                        <TableHead className="min-w-[150px] text-right text-[10px] font-bold uppercase tracking-widest">History coverage</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {historyRows.length === 0 ? (
+                        <TableRow>
+                          <TableCell colSpan={5} className="h-32 text-center">
+                            <span className="font-mono text-xs text-muted-foreground/50">NO BALANCE HISTORY AVAILABLE</span>
+                          </TableCell>
+                        </TableRow>
+                      ) : historyRows.map((point) => (
+                        <TableRow key={point.date} className="border-border/30 hover:bg-white/[0.02]">
+                          <TableCell className="font-mono text-sm text-foreground">{formatDate(point.date)}</TableCell>
+                          <TableCell className="text-right font-mono text-sm font-medium text-foreground/90">{formatExactValue(point.balance)}</TableCell>
+                          <TableCell className="text-right font-mono text-sm text-foreground/90">
+                            {point.consumption > 0 ? formatExactValue(point.consumption) : <span className="text-muted-foreground/50">—</span>}
+                          </TableCell>
+                          <TableCell className={`text-right font-mono text-sm font-medium ${
+                            point.balanceChange === null
+                              ? "text-muted-foreground/50"
+                              : point.balanceChange > 0
+                                ? "text-emerald-400"
+                                : point.balanceChange < 0
+                                  ? "text-rose-400"
+                                  : "text-muted-foreground"
+                          }`}>
+                            {point.balanceChange === null ? "—" : `${point.balanceChange > 0 ? "+" : ""}${formatExactValue(point.balanceChange)}`}
+                          </TableCell>
+                          <TableCell className="text-right">
+                            <span className={`inline-flex rounded border px-2 py-1 font-mono text-[11px] ${
+                              point.isComplete
+                                ? "border-emerald-500/20 bg-emerald-500/10 text-emerald-400"
+                                : "border-amber-500/20 bg-amber-500/10 text-amber-400"
+                            }`}>
+                              {point.isComplete ? "Complete" : "Partial"} · {point.organizationCount}/{point.expectedOrganizationCount}
+                            </span>
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
+              </Card>
             </div>
           )}
         </div>
