@@ -49,7 +49,7 @@ function parseRecipients(entry: AlertHistoryEntry): React.ReactNode {
       );
     }
     if (ch === "telegram") {
-      return <span className="font-mono">Chat ID: {String(r.chatId ?? "broadcast")}</span>;
+      return <span className="font-mono">Channel ID: {String(r.chatId ?? "broadcast")}</span>;
     }
     return <span className="font-mono text-xs">{entry.recipients}</span>;
   } catch {

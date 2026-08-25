@@ -19,7 +19,7 @@ export async function sendTelegramMessage(
     return { ok: false, error: "Telegram bot token is not configured." };
   }
   if (!settings.telegramChatId) {
-    return { ok: false, error: "Telegram chat ID is not configured." };
+    return { ok: false, error: "Telegram channel ID is not configured." };
   }
 
   try {

@@ -318,7 +318,7 @@ export default function SettingsPage() {
       return;
     }
     if (!chatId) {
-      toast({ variant: "destructive", title: "Chat ID required", description: "Enter and save the Telegram channel or group chat ID first." });
+      toast({ variant: "destructive", title: "Channel ID required", description: "Enter and save the Telegram channel ID first." });
       return;
     }
 
@@ -951,7 +951,7 @@ export default function SettingsPage() {
                 )} />
                 <FormField control={form.control} name="telegramChatId" render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Chat ID</FormLabel>
+                    <FormLabel>Channel ID</FormLabel>
                     <FormControl><Input className="bg-background font-mono text-sm" {...field} value={field.value || ""} /></FormControl>
                   </FormItem>
                 )} />
@@ -960,7 +960,7 @@ export default function SettingsPage() {
               <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                 <div>
                   <p className="text-sm font-medium text-foreground">Test Telegram Channel</p>
-                  <p className="text-xs text-muted-foreground">Sends a test message using the current saved token and chat ID.</p>
+                  <p className="text-xs text-muted-foreground">Sends a test message using the current saved token and channel ID.</p>
                 </div>
                 <Button
                   type="button"
