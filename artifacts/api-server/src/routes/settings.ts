@@ -6,6 +6,7 @@ import { logger } from "../lib/logger";
 import nodemailer from "nodemailer";
 import { generateSecret, generateURI, verify, generate } from "otplib";
 import QRCode from "qrcode";
+import { sendTelegramMessage } from "../lib/telegram.js";
 
 const router = Router();
 const APP_NAME = "BalanceAlert";
@@ -210,6 +211,22 @@ router.post("/settings/test-email", async (req, res): Promise<void> => {
     logger.warn({ err, to }, "Test email failed");
     res.status(500).json({ success: false, error: msg });
   }
+});
+
+router.post("/settings/test-telegram", async (_req, res): Promise<void> => {
+  const settings = await getOrCreateSettings();
+  const result = await sendTelegramMessage(
+    "BalanceAlert test message — your Telegram channel configuration is working correctly.",
+    settings,
+  );
+
+  if (result.ok) {
+    logger.info({ chatId: settings.telegramChatId }, "Test Telegram message sent successfully");
+    res.json({ success: true });
+    return;
+  }
+
+  res.status(500).json({ success: false, error: result.error ?? "Telegram message failed." });
 });
 
 export default router;

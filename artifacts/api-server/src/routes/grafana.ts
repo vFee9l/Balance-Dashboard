@@ -17,6 +17,7 @@ import {
   type ClientBalanceData,
   type GrafanaFrame,
 } from "./grafanaData.js";
+import { sendTelegramMessage } from "../lib/telegram.js";
 
 // Keep external Grafana failures bounded. The dashboard surfaces a clear retry
 // state instead of holding the page in an indeterminate loading state.
@@ -1432,27 +1433,7 @@ async function sendTelegramNotification(
   message: string,
   settings: { telegramBotToken?: string | null; telegramChatId?: string | null }
 ): Promise<boolean> {
-  if (!settings.telegramBotToken || !settings.telegramChatId) return false;
-  if (settings.telegramBotToken === "***") return false;
-  try {
-    const resp = await fetch(
-      `https://api.telegram.org/bot${settings.telegramBotToken}/sendMessage`,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          chat_id: settings.telegramChatId,
-          text: message,
-          parse_mode: "HTML",
-        }),
-        signal: AbortSignal.timeout(10000),
-      }
-    );
-    return resp.ok;
-  } catch (err) {
-    logger.warn({ err }, "Telegram send failed");
-    return false;
-  }
+  return (await sendTelegramMessage(message, settings)).ok;
 }
 
 // ─── Google Sheet contact row ──────────────────────────────────────────────────

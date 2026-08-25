@@ -304,6 +304,42 @@ export default function SettingsPage() {
     }
   };
 
+  const [testTelegramSending, setTestTelegramSending] = useState(false);
+
+  const handleTestTelegram = async () => {
+    const botToken = form.getValues("telegramBotToken")?.trim();
+    const chatId = form.getValues("telegramChatId")?.trim();
+    if (!botToken) {
+      toast({ variant: "destructive", title: "Telegram token required", description: "Save a Telegram bot token before sending a test message." });
+      return;
+    }
+    if (botToken !== "***") {
+      toast({ variant: "destructive", title: "Save changes first", description: "Save the Telegram bot token before testing the channel." });
+      return;
+    }
+    if (!chatId) {
+      toast({ variant: "destructive", title: "Chat ID required", description: "Enter and save the Telegram channel or group chat ID first." });
+      return;
+    }
+
+    setTestTelegramSending(true);
+    try {
+      const res = await fetch("/api/settings/test-telegram", {
+        method: "POST",
+        credentials: "include",
+      });
+      const data = await res.json() as { success: boolean; error?: string };
+      if (!res.ok || !data.success) {
+        throw new Error(data.error ?? "Telegram message failed.");
+      }
+      toast({ title: "Test Telegram message sent", description: "Check the configured channel or group." });
+    } catch (err: unknown) {
+      toast({ variant: "destructive", title: "Telegram test failed", description: err instanceof Error ? err.message : "Request failed." });
+    } finally {
+      setTestTelegramSending(false);
+    }
+  };
+
   const form = useForm<SettingsUpdate>({
     defaultValues: {
       smsEnabled: false,
@@ -919,6 +955,23 @@ export default function SettingsPage() {
                     <FormControl><Input className="bg-background font-mono text-sm" {...field} value={field.value || ""} /></FormControl>
                   </FormItem>
                 )} />
+              </div>
+              <Separator className="my-2 border-border/40" />
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                <div>
+                  <p className="text-sm font-medium text-foreground">Test Telegram Channel</p>
+                  <p className="text-xs text-muted-foreground">Sends a test message using the current saved token and chat ID.</p>
+                </div>
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => void handleTestTelegram()}
+                  disabled={testTelegramSending}
+                  className="shrink-0"
+                >
+                  <Send className="w-4 h-4 mr-2" />
+                  {testTelegramSending ? "Sending…" : "Send Test"}
+                </Button>
               </div>
             </CardContent>
           </Card>
