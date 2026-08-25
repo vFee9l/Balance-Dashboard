@@ -215,13 +215,26 @@ router.post("/settings/test-email", async (req, res): Promise<void> => {
 
 router.post("/settings/test-telegram", async (req, res): Promise<void> => {
   const settings = await getOrCreateSettings();
+  req.log.info(
+    {
+      settingsId: settings.id,
+      channelId: settings.telegramChatId?.trim() ?? null,
+      channelIdUtf8Hex: settings.telegramChatId
+        ? Buffer.from(settings.telegramChatId.trim(), "utf8").toString("hex")
+        : null,
+      channelIdWhitespaceTrimmed: settings.telegramChatId !== settings.telegramChatId?.trim(),
+      tokenConfigured: Boolean(settings.telegramBotToken),
+      tokenLength: settings.telegramBotToken?.length ?? 0,
+    },
+    "Loaded Telegram channel settings for test",
+  );
   const result = await sendTelegramMessage(
     "BalanceAlert test message — your Telegram channel configuration is working correctly.",
     settings,
   );
 
   if (result.ok) {
-    logger.info({ chatId: settings.telegramChatId }, "Test Telegram message sent successfully");
+    logger.info({ channelId: settings.telegramChatId?.trim() }, "Test Telegram message sent successfully");
     res.json({ success: true });
     return;
   }
@@ -232,7 +245,7 @@ router.post("/settings/test-telegram", async (req, res): Promise<void> => {
     : error.includes("Unable to reach")
       ? 504
       : 502;
-  req.log.error({ chatId: settings.telegramChatId, status, telegramError: error }, "Test Telegram message failed");
+  req.log.error({ channelId: settings.telegramChatId?.trim(), status, telegramError: error }, "Test Telegram message failed");
   res.status(status).json({ success: false, error });
 });
 

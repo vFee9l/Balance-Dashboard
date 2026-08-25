@@ -317,6 +317,10 @@ export default function SettingsPage() {
       toast({ variant: "destructive", title: "Save changes first", description: "Save the Telegram bot token before testing the channel." });
       return;
     }
+    if (form.getFieldState("telegramBotToken").isDirty || form.getFieldState("telegramChatId").isDirty) {
+      toast({ variant: "destructive", title: "Save changes first", description: "Save the current Telegram channel configuration before testing it." });
+      return;
+    }
     if (!chatId) {
       toast({ variant: "destructive", title: "Channel ID required", description: "Enter and save the Telegram channel ID first." });
       return;
@@ -393,7 +397,11 @@ export default function SettingsPage() {
 
   const onSubmit = async (data: SettingsUpdate) => {
     try {
-      await updateSettingsMutation.mutateAsync({ data });
+      const savedSettings = await updateSettingsMutation.mutateAsync({ data });
+      const cleaned = Object.fromEntries(
+        Object.entries(savedSettings).map(([key, value]) => [key, value === null ? undefined : value])
+      ) as SettingsUpdate;
+      form.reset(cleaned);
       toast({ title: "Configuration saved", description: "Settings updated successfully." });
       queryClient.invalidateQueries({ queryKey: getGetSettingsQueryKey() });
     } catch (error: any) {

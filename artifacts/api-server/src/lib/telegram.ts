@@ -1,6 +1,7 @@
 import { logger } from "./logger.js";
 
 export type TelegramChannelSettings = {
+  id?: number;
   telegramBotToken?: string | null;
   telegramChatId?: string | null;
 };
@@ -15,21 +16,37 @@ export async function sendTelegramMessage(
   message: string,
   settings: TelegramChannelSettings,
 ): Promise<{ ok: boolean; error?: string }> {
-  if (!settings.telegramBotToken || settings.telegramBotToken === "***") {
+  const botToken = settings.telegramBotToken?.trim();
+  const channelId = settings.telegramChatId?.trim();
+
+  if (!botToken || botToken === "***") {
     return { ok: false, error: "Telegram bot token is not configured." };
   }
-  if (!settings.telegramChatId) {
+  if (!channelId) {
     return { ok: false, error: "Telegram channel ID is not configured." };
   }
 
   try {
+    logger.info(
+      {
+        settingsId: settings.id,
+        channelId,
+        channelIdLength: channelId.length,
+        channelIdUtf8Hex: Buffer.from(channelId, "utf8").toString("hex"),
+        channelIdWhitespaceTrimmed: settings.telegramChatId !== channelId,
+        tokenLength: botToken.length,
+        tokenWhitespaceTrimmed: settings.telegramBotToken !== botToken,
+      },
+      "Sending Telegram channel message",
+    );
+
     const response = await fetch(
-      `https://api.telegram.org/bot${settings.telegramBotToken}/sendMessage`,
+      `https://api.telegram.org/bot${botToken}/sendMessage`,
       {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          chat_id: settings.telegramChatId,
+          chat_id: channelId,
           text: message,
           parse_mode: "HTML",
         }),
@@ -49,14 +66,14 @@ export async function sendTelegramMessage(
       const apiCode = data.error_code ?? response.status;
       const reason = data.description || responseBody || `HTTP ${response.status}`;
       const error = `Telegram API ${apiCode}: ${reason}`;
-      logger.warn({ status: response.status, apiCode, chatId: settings.telegramChatId, reason }, "Telegram message failed");
+      logger.warn({ status: response.status, apiCode, channelId, reason }, "Telegram message failed");
       return { ok: false, error };
     }
 
     return { ok: true };
   } catch (error) {
     const reason = error instanceof Error ? error.message : String(error);
-    logger.warn({ err: error, chatId: settings.telegramChatId }, "Telegram message request failed");
+    logger.warn({ err: error, channelId }, "Telegram message request failed");
     return { ok: false, error: `Unable to reach the Telegram API: ${reason}` };
   }
 }
