@@ -7,6 +7,7 @@ export type TelegramChannelSettings = {
 
 type TelegramApiResponse = {
   ok?: boolean;
+  error_code?: number;
   description?: string;
 };
 
@@ -45,15 +46,17 @@ export async function sendTelegramMessage(
     }
 
     if (!response.ok || data.ok !== true) {
+      const apiCode = data.error_code ?? response.status;
       const reason = data.description || responseBody || `HTTP ${response.status}`;
-      logger.warn({ status: response.status, chatId: settings.telegramChatId, reason }, "Telegram message failed");
-      return { ok: false, error: reason };
+      const error = `Telegram API ${apiCode}: ${reason}`;
+      logger.warn({ status: response.status, apiCode, chatId: settings.telegramChatId, reason }, "Telegram message failed");
+      return { ok: false, error };
     }
 
     return { ok: true };
   } catch (error) {
     const reason = error instanceof Error ? error.message : String(error);
     logger.warn({ err: error, chatId: settings.telegramChatId }, "Telegram message request failed");
-    return { ok: false, error: reason };
+    return { ok: false, error: `Unable to reach the Telegram API: ${reason}` };
   }
 }

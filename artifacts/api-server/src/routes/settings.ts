@@ -213,7 +213,7 @@ router.post("/settings/test-email", async (req, res): Promise<void> => {
   }
 });
 
-router.post("/settings/test-telegram", async (_req, res): Promise<void> => {
+router.post("/settings/test-telegram", async (req, res): Promise<void> => {
   const settings = await getOrCreateSettings();
   const result = await sendTelegramMessage(
     "BalanceAlert test message — your Telegram channel configuration is working correctly.",
@@ -226,7 +226,14 @@ router.post("/settings/test-telegram", async (_req, res): Promise<void> => {
     return;
   }
 
-  res.status(500).json({ success: false, error: result.error ?? "Telegram message failed." });
+  const error = result.error ?? "Telegram message failed.";
+  const status = error.includes("not configured")
+    ? 400
+    : error.includes("Unable to reach")
+      ? 504
+      : 502;
+  req.log.warn({ chatId: settings.telegramChatId, status, error }, "Test Telegram message failed");
+  res.status(status).json({ success: false, error });
 });
 
 export default router;
