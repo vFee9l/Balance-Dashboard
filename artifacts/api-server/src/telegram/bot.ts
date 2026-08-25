@@ -13,7 +13,8 @@ import type { TelegramUser, TelegramConfig } from "@workspace/db";
 import { eq, and, desc, ne } from "drizzle-orm";
 import { logger } from "../lib/logger.js";
 import { getBalanceCache } from "../lib/balanceCache.js";
-import { decrypt } from "../lib/cryptoUtils.js";
+import { decrypt, encrypt } from "../lib/cryptoUtils.js";
+import { sanitizeTelegramSetting } from "../lib/telegram.js";
 
 // ─── Bot instance state ───────────────────────────────────────────────────────
 let bot: TelegramBot | null = null;
@@ -23,6 +24,15 @@ let _restartTimer: ReturnType<typeof setTimeout> | null = null;
 
 // ─── Config cache (30 s TTL to avoid per-message DB round-trips) ─────────────
 let _cfgCache: { data: TelegramConfig | null; expiresAt: number } | null = null;
+
+function getTokenDiagnostics(token: string) {
+  return {
+    tokenLength: token.length,
+    tokenPrefix: token.slice(0, 4),
+    tokenSuffix: token.slice(-4),
+    tokenFormatValid: /^\d+:[A-Za-z0-9_-]+$/.test(token),
+  };
+}
 
 async function getConfig(): Promise<TelegramConfig | null> {
   const now = Date.now();
@@ -38,15 +48,30 @@ export function invalidateConfigCache() {
 
 // ─── Public API ───────────────────────────────────────────────────────────────
 export async function startBot(token: string): Promise<{ username: string }> {
+  const sanitizedToken = sanitizeTelegramSetting(token);
+  if (!sanitizedToken) {
+    throw new Error("bot_token is required");
+  }
+  if (!/^\d+:[A-Za-z0-9_-]+$/.test(sanitizedToken)) {
+    throw new Error("Invalid bot token format. Expected digits, one colon, then letters, digits, hyphens, or underscores.");
+  }
+
   await stopBot();
   // Give Telegram's servers 2 s to release the previous getUpdates session,
   // otherwise we get a 409 Conflict on the very next poll.
   await new Promise<void>((r) => setTimeout(r, 2000));
 
-  const probe = new TelegramBot(token, { polling: false });
+  const probe = new TelegramBot(sanitizedToken, { polling: false });
+  logger.info(
+    {
+      ...getTokenDiagnostics(sanitizedToken),
+      tokenSanitized: token !== sanitizedToken,
+    },
+    "Testing interactive Telegram bot token with getMe",
+  );
   const me = await probe.getMe();
   _botUsername = me.username ?? null;
-  bot = new TelegramBot(token, {
+  bot = new TelegramBot(sanitizedToken, {
     polling: { interval: 300, autoStart: true, params: { timeout: 10 } },
   });
   _connected = true;
@@ -81,8 +106,20 @@ export async function tryAutoStart(): Promise<void> {
   try {
     const [cfg] = await db.select().from(telegramConfigTable).where(eq(telegramConfigTable.id, 1));
     if (cfg?.enabled && cfg.botTokenEnc) {
-      const token = decrypt(cfg.botTokenEnc);
-      await startBot(token);
+      const decryptedToken = decrypt(cfg.botTokenEnc);
+      const token = sanitizeTelegramSetting(decryptedToken);
+      if (!token) {
+        throw new Error("Stored bot token is empty after sanitization");
+      }
+      await startBot(decryptedToken);
+      if (token !== decryptedToken) {
+        await db
+          .update(telegramConfigTable)
+          .set({ botTokenEnc: encrypt(token), updatedAt: new Date() })
+          .where(eq(telegramConfigTable.id, cfg.id));
+        invalidateConfigCache();
+        logger.warn("Removed invisible characters from stored interactive Telegram bot token");
+      }
       logger.info({ botUsername: cfg.botUsername }, "Telegram bot auto-started from stored token");
     }
   } catch (err) {

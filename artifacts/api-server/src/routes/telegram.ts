@@ -10,6 +10,7 @@ import { eq, count, desc, and, gte, lte, ilike, sql } from "drizzle-orm";
 import { logger } from "../lib/logger.js";
 import { startBot, stopBot, getBotStatus, sendMessageToUser, invalidateConfigCache } from "../telegram/bot.js";
 import { encrypt, decrypt } from "../lib/cryptoUtils.js";
+import { sanitizeTelegramSetting } from "../lib/telegram.js";
 
 const router = Router();
 
@@ -65,25 +66,41 @@ router.put("/settings/telegram", async (req, res): Promise<void> => {
     const cfg = await getOrCreateConfig();
     if (!cfg.botTokenEnc) { res.status(400).json({ error: "No stored token. Please provide a bot_token." }); return; }
     try {
-      const token = decrypt(cfg.botTokenEnc);
-      const { username } = await startBot(token);
-      await db.update(telegramConfigTable).set({ enabled: true, botUsername: username, updatedAt: new Date() }).where(eq(telegramConfigTable.id, 1));
+      const decryptedToken = decrypt(cfg.botTokenEnc);
+      const token = sanitizeTelegramSetting(decryptedToken);
+      if (!token) {
+        res.status(400).json({ error: "Stored bot token is empty after sanitization. Please provide a new token." });
+        return;
+      }
+      const { username } = await startBot(decryptedToken);
+      await db.update(telegramConfigTable).set({
+        ...(token !== decryptedToken ? { botTokenEnc: encrypt(token) } : {}),
+        enabled: true,
+        botUsername: username,
+        updatedAt: new Date(),
+      }).where(eq(telegramConfigTable.id, 1));
       invalidateConfigCache();
       res.json({ ok: true, connected: true, botUsername: username });
     } catch (err) {
-      res.status(400).json({ error: "Failed to start bot: " + (err instanceof Error ? err.message : String(err)) });
+      const error = err instanceof Error ? err.message : String(err);
+      logger.error({ error }, "Failed to re-enable interactive Telegram bot");
+      res.status(400).json({ error: "Failed to start bot: " + error });
     }
     return;
   }
 
-  if (!bot_token || typeof bot_token !== "string" || !bot_token.trim()) {
+  if (!bot_token || typeof bot_token !== "string") {
     res.status(400).json({ error: "bot_token is required" });
     return;
   }
 
-  const token = bot_token.trim();
+  const token = sanitizeTelegramSetting(bot_token);
+  if (!token) {
+    res.status(400).json({ error: "bot_token is required" });
+    return;
+  }
   try {
-    const { username } = await startBot(token);
+    const { username } = await startBot(bot_token);
     const enc = encrypt(token);
     const cfg = await getOrCreateConfig();
     if (cfg) {
@@ -95,9 +112,23 @@ router.put("/settings/telegram", async (req, res): Promise<void> => {
     res.json({ ok: true, connected: true, botUsername: username });
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
-    const isAuth = msg.includes("401") || msg.toLowerCase().includes("unauthorized");
+    const isAuth =
+      msg.includes("401") ||
+      msg.includes("ETELEGRAM: 404") ||
+      msg.toLowerCase().includes("unauthorized");
+    logger.error({
+      error: msg,
+      tokenLength: token.length,
+      tokenPrefix: token.slice(0, 4),
+      tokenSuffix: token.slice(-4),
+      tokenSanitized: bot_token !== token,
+    }, "Interactive Telegram bot connection failed");
     res.status(400).json({
-      error: isAuth ? "Invalid bot token — please check it in BotFather." : `Failed to connect: ${msg}`,
+      error: isAuth
+        ? "Invalid bot token — please check it in BotFather."
+        : msg.startsWith("Invalid bot token format")
+          ? msg
+          : `Failed to connect: ${msg}`,
     });
   }
 });
