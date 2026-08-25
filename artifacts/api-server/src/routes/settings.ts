@@ -232,7 +232,7 @@ router.post("/settings/test-telegram", async (req, res): Promise<void> => {
     : error.includes("Unable to reach")
       ? 504
       : 502;
-  req.log.warn({ chatId: settings.telegramChatId, status, error }, "Test Telegram message failed");
+  req.log.error({ chatId: settings.telegramChatId, status, telegramError: error }, "Test Telegram message failed");
   res.status(status).json({ success: false, error });
 });
 
