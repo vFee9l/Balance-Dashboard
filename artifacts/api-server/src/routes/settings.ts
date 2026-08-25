@@ -6,16 +6,54 @@ import { logger } from "../lib/logger";
 import nodemailer from "nodemailer";
 import { generateSecret, generateURI, verify, generate } from "otplib";
 import QRCode from "qrcode";
-import { sendTelegramMessage } from "../lib/telegram.js";
+import { sanitizeTelegramSetting, sendTelegramMessage } from "../lib/telegram.js";
 
 const router = Router();
 const APP_NAME = "BalanceAlert";
 
 async function getOrCreateSettings() {
   const rows = await db.select().from(settingsTable).limit(1);
-  if (rows.length > 0) return rows[0];
+  if (rows.length > 0) {
+    return sanitizeTelegramSettings(rows[0]);
+  }
   const [created] = await db.insert(settingsTable).values({}).returning();
-  return created;
+  return sanitizeTelegramSettings(created);
+}
+
+function sanitizeTelegramSettings(settings: typeof settingsTable.$inferSelect) {
+  return {
+    ...settings,
+    telegramBotToken: sanitizeTelegramSetting(settings.telegramBotToken) ?? null,
+    telegramChatId: sanitizeTelegramSetting(settings.telegramChatId) ?? null,
+  };
+}
+
+export async function repairStoredTelegramSettings(): Promise<void> {
+  const settingsRows = await db.select().from(settingsTable);
+  let repairedRows = 0;
+
+  for (const settings of settingsRows) {
+    const sanitized = sanitizeTelegramSettings(settings);
+    if (
+      sanitized.telegramBotToken === settings.telegramBotToken &&
+      sanitized.telegramChatId === settings.telegramChatId
+    ) {
+      continue;
+    }
+
+    await db
+      .update(settingsTable)
+      .set({
+        telegramBotToken: sanitized.telegramBotToken,
+        telegramChatId: sanitized.telegramChatId,
+      })
+      .where(eq(settingsTable.id, settings.id));
+    repairedRows += 1;
+  }
+
+  if (repairedRows > 0) {
+    logger.warn({ repairedRows }, "Removed invisible characters from stored Telegram settings");
+  }
 }
 
 function maskSensitive(settings: typeof settingsTable.$inferSelect) {
@@ -43,6 +81,12 @@ router.patch("/settings", async (req, res): Promise<void> => {
   const updateData: Record<string, unknown> = { ...body.data };
   if (updateData.smtpPassword === "***") delete updateData.smtpPassword;
   if (updateData.grafanaApiKey === "***") delete updateData.grafanaApiKey;
+  if (typeof updateData.telegramBotToken === "string") {
+    updateData.telegramBotToken = sanitizeTelegramSetting(updateData.telegramBotToken);
+  }
+  if (typeof updateData.telegramChatId === "string") {
+    updateData.telegramChatId = sanitizeTelegramSetting(updateData.telegramChatId);
+  }
   if (updateData.telegramBotToken === "***") delete updateData.telegramBotToken;
   if (updateData.totpSecret === "***") delete updateData.totpSecret;
 
@@ -222,7 +266,7 @@ router.post("/settings/test-telegram", async (req, res): Promise<void> => {
       channelIdUtf8Hex: settings.telegramChatId
         ? Buffer.from(settings.telegramChatId.trim(), "utf8").toString("hex")
         : null,
-      channelIdWhitespaceTrimmed: settings.telegramChatId !== settings.telegramChatId?.trim(),
+      channelIdSanitized: settings.telegramChatId !== sanitizeTelegramSetting(settings.telegramChatId),
       tokenConfigured: Boolean(settings.telegramBotToken),
       tokenLength: settings.telegramBotToken?.length ?? 0,
     },

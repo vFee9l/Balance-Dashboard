@@ -1,5 +1,12 @@
 import { logger } from "./logger.js";
 
+const INVISIBLE_UNICODE_RE =
+  /[\u0000-\u001F\u007F-\u009F\u00AD\u061C\u180E\u200B-\u200F\u202A-\u202E\u2060-\u2064\u2066-\u206F\uFEFF]/g;
+
+export function sanitizeTelegramSetting(value: string | null | undefined): string | null | undefined {
+  return value?.replace(INVISIBLE_UNICODE_RE, "").trim();
+}
+
 export type TelegramChannelSettings = {
   id?: number;
   telegramBotToken?: string | null;
@@ -16,8 +23,8 @@ export async function sendTelegramMessage(
   message: string,
   settings: TelegramChannelSettings,
 ): Promise<{ ok: boolean; error?: string }> {
-  const botToken = settings.telegramBotToken?.trim();
-  const channelId = settings.telegramChatId?.trim();
+  const botToken = sanitizeTelegramSetting(settings.telegramBotToken);
+  const channelId = sanitizeTelegramSetting(settings.telegramChatId);
 
   if (!botToken || botToken === "***") {
     return { ok: false, error: "Telegram bot token is not configured." };
@@ -33,9 +40,9 @@ export async function sendTelegramMessage(
         channelId,
         channelIdLength: channelId.length,
         channelIdUtf8Hex: Buffer.from(channelId, "utf8").toString("hex"),
-        channelIdWhitespaceTrimmed: settings.telegramChatId !== channelId,
+        channelIdSanitized: settings.telegramChatId !== channelId,
         tokenLength: botToken.length,
-        tokenWhitespaceTrimmed: settings.telegramBotToken !== botToken,
+        tokenSanitized: settings.telegramBotToken !== botToken,
       },
       "Sending Telegram channel message",
     );

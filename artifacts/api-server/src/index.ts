@@ -3,6 +3,7 @@ import { logger } from "./lib/logger.js";
 import { startScheduler, startBalanceCacheRefresher } from "./lib/scheduler.js";
 import { tryAutoStart } from "./telegram/bot.js";
 import { seedAdminIfEmpty } from "./auth/seedAdmin.js";
+import { repairStoredTelegramSettings } from "./routes/settings.js";
 import { db } from "@workspace/db";
 import { sql } from "drizzle-orm";
 
@@ -44,6 +45,7 @@ app.listen(port, async (err) => {
 
   logger.info({ port }, "Server listening");
   await checkSchema();
+  await repairStoredTelegramSettings();
   await seedAdminIfEmpty();
   startScheduler();
   startBalanceCacheRefresher();

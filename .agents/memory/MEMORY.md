@@ -1,4 +1,5 @@
 - [Telegram Bot integration](telegram-bot.md) — interactive bot uses separate `telegram_config` table; broadcast channel uses `settings.telegramBotToken`
+- [Telegram value sanitization](telegram-value-sanitization.md) — broadcast credentials must remove invisible Unicode before storage and use
 - [Google Sheets alert routing](sheets-alert-routing.md) — per-client contacts from sheet (Finance ID key), new severity routing rules; DB contacts are fallback
 - [OTP library type fix](otp-type-fix.md) — `type: "totp"` is not a valid property in OTPVerifyOptions / generateURI; omit it (default is TOTP anyway)
 - [otplib v13 functional API](otplib-v13.md) — v13 dropped the `authenticator` object; use named functional exports instead
